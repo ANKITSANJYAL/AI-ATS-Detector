@@ -126,6 +126,8 @@ export default function AIDetectorResults({ results, onReset }: AIDetectorResult
     if (!data) return null;
 
     const confidencePct = Math.round(data.confidence * 100);
+    // P(AI) for the bar position: if is_ai, P(AI) = confidence; else P(AI) = 1 - confidence
+    const aiPct = Math.round((data.is_ai ? data.confidence : 1 - data.confidence) * 100);
     const feats = data.features || {};
 
     /** Small feature bar component */
@@ -180,14 +182,14 @@ export default function AIDetectorResults({ results, onReset }: AIDetectorResult
           </span>
         </div>
 
-        {/* Confidence bar */}
+        {/* AI probability bar — position shows P(AI) on the Human↔AI axis */}
         <div className="mb-3">
           <div className="w-full bg-slate-700 rounded-full h-1.5">
             <div
               className={`h-1.5 rounded-full transition-all ${
-                data.is_ai ? "bg-red-500" : "bg-green-500"
+                aiPct > 50 ? "bg-red-500" : "bg-green-500"
               }`}
-              style={{ width: `${confidencePct}%` }}
+              style={{ width: `${aiPct}%` }}
             />
           </div>
           <div className="flex justify-between text-xs text-slate-500 mt-0.5">
