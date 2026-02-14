@@ -13,7 +13,6 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
-    Integer,
     LargeBinary,
     String,
     Text,
@@ -122,8 +121,8 @@ class UsageRecord(Base):
     user_id = Column(String(255), nullable=False, index=True)
     feature = Column(String(50), nullable=False)  # "ai_detection" | "ats_scoring"
     endpoint = Column(String(255), nullable=False)
-    status_code = Column(Integer, nullable=False)
-    duration_ms = Column(Integer, nullable=False)
+    status_code = Column(String(10), nullable=False)
+    duration_ms = Column(Float, nullable=False)
     reported_to_stripe = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 

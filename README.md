@@ -1,282 +1,127 @@
 # DocGuard & CareerMatch
 
-**Professional AI-powered document analysis and ATS scoring platform built with Google-standard practices.**
+A full-stack SaaS platform for AI-generated content detection and ATS (Applicant Tracking System) resume scoring.
 
-## 🚀 Features
+## Overview
 
-### 🛡️ AI Document Guard
-Forensic linguistic analysis to detect AI-generated content with enterprise-grade accuracy.
+**AI Content Detector** — Upload a document and get a sentence-level breakdown of which parts are likely AI-generated vs. human-written. Uses a multi-model ensemble (RoBERTa + ChatGPT detector) with Platt calibration and per-sentence linguistic feature analysis.
 
-- **Multi-dimensional analysis**: Sentence complexity, vocabulary diversity, coherence scoring
-- **High accuracy**: Advanced LLM-powered feature extraction
-- **Detailed reports**: Confidence scores and flagged sections
+**ATS Resume Scorer** — Upload a resume and a job description to get an ATS compatibility score. Uses LLM-based skill extraction, semantic similarity via embeddings, keyword matching, format analysis, and gap analysis with actionable recommendations.
 
-### 🎯 Strategic Career Match
-ATS compatibility scoring with semantic analysis and actionable recommendations.
+## Tech Stack
 
-- **Semantic matching**: AI-powered similarity analysis beyond keyword matching
-- **Skills gap analysis**: Identify missing qualifications
-- **Actionable insights**: Specific recommendations to improve match scores
+| Layer | Technology |
+|-------|------------|
+| Frontend | Next.js 14, TypeScript, TailwindCSS, Clerk Auth |
+| Backend | FastAPI, Python 3.11+, Pydantic v2 |
+| Database | PostgreSQL (async via SQLAlchemy + asyncpg) |
+| Cache | Redis |
+| AI/ML | RoBERTa transformer, OpenAI GPT-4 Turbo, sentence embeddings |
+| MCP Server | TypeScript, Model Context Protocol SDK |
 
-## 🏗️ Architecture
+## Project Structure
 
-### Zero File Clutter
-- **Database-first**: All data stored in PostgreSQL/Redis
-- **Self-documenting**: OpenAPI/Swagger with Pydantic Field descriptions
-- **No junk files**: No .txt, .log, or unnecessary .md files
-
-### Service-Agent Pattern
 ```
-┌─────────────┐
-│  Next.js    │  ← Material 3 UI
-│  Frontend   │
-└──────┬──────┘
-       │
-┌──────▼──────┐
-│   FastAPI   │  ← Self-documenting REST API
-│   Backend   │
-└──────┬──────┘
-       │
-┌──────▼──────┐
-│  Agents     │  ← AI Detection & ATS Scoring
-│ Orchestrator│
-└──────┬──────┘
-       │
-┌──────▼──────┐
-│ MCP Server  │  ← Filesystem, DB, Fetch tools
-└─────────────┘
+backend/          FastAPI application
+  app/
+    agents/       DetectorAgent, ATSScorerAgent, Orchestrator
+    api/v1/       REST endpoints (upload, detect, score)
+    services/     AIClassifier, DocumentProcessor, LLMClient, Redis
+    models/       Pydantic schemas
+    db/           SQLAlchemy ORM models and session
+frontend/         Next.js application
+  app/
+    ai-detector/  Upload and results page
+    ats-checker/  Resume scoring page
+    components/   AIDetectorResults, ATSResults
+mcp_server/       MCP server with filesystem, postgres, and fetch tools
 ```
 
-### Technology Stack
+## Prerequisites
 
-**Backend:**
-- FastAPI 0.109+ (Python 3.11+)
-- Pydantic 2.5+ for type safety
-- OpenAI / Anthropic LLMs
-- Redis for caching & job queue
-- PostgreSQL for persistent storage
-- Celery for async processing
-
-**Frontend:**
-- Next.js 14+ with TypeScript
-- Clerk authentication
-- TailwindCSS + Material 3 design
-- Axios for API calls
-
-**MCP Server:**
-- TypeScript with Express
-- Model Context Protocol SDK
-- PostgreSQL client
-
-## 📦 Installation
-
-### Prerequisites
 - Python 3.11+
 - Node.js 18+
-- PostgreSQL 15+
-- Redis 7+
+- PostgreSQL 14+
+- Redis
+- An OpenAI API key
 
-### Backend Setup
+## Setup
+
+### 1. Backend
 
 ```bash
 cd backend
-
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
+source venv/bin/activate
 pip install -r requirements.txt
-
-# Set environment variables
 cp .env.example .env
-# Edit .env with your credentials
-
-# Run server
-uvicorn app.main:app --reload
+# Fill in POSTGRES_DSN, REDIS_DSN, OPENAI_API_KEY, and CLERK_SECRET_KEY
+uvicorn app.main:app --reload --port 8000
 ```
 
-### Frontend Setup
+### 2. Frontend
 
 ```bash
 cd frontend
-
-# Install dependencies
 npm install
-
-# Set environment variables
 cp .env.example .env.local
-# Edit .env.local with your Clerk keys
-
-# Run development server
+# Fill in NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY and CLERK_SECRET_KEY
 npm run dev
 ```
 
-### MCP Server Setup
+### 3. MCP Server (optional)
 
 ```bash
 cd mcp_server
-
-# Install dependencies
 npm install
-
-# Build TypeScript
 npm run build
-
-# Run server
 npm start
 ```
 
-## 🔑 Environment Variables
+## Environment Variables
 
-### Backend (.env)
-```bash
-# Application
-ENVIRONMENT=development
-DEBUG=true
+**Backend** (`backend/.env`):
 
-# Database
+```
 POSTGRES_DSN=postgresql://user:pass@localhost:5432/docguard
 REDIS_DSN=redis://localhost:6379/0
-
-# LLM APIs
 OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-
-# Authentication
 CLERK_SECRET_KEY=sk_...
-
-# Billing
-STRIPE_API_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
+ENVIRONMENT=development
+DEBUG=true
 ```
 
-### Frontend (.env.local)
-```bash
+**Frontend** (`frontend/.env.local`):
+
+```
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
 CLERK_SECRET_KEY=sk_test_...
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
-## 🧪 Testing
+## API
 
-### Run Test Suite
+Once the backend is running, interactive documentation is available at:
+
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+
+Key endpoints:
+
+```
+POST /api/v1/documents/upload    Upload a document (PDF, DOCX, TXT, image)
+POST /api/v1/documents/detect    Run AI content detection
+POST /api/v1/documents/score     Run ATS resume scoring
+GET  /health                     Health check
+```
+
+## Testing
+
 ```bash
 cd backend
 pytest tests/ -v
-
-# With coverage
-pytest tests/ --cov=app --cov-report=html
-
-# Run validation tests (Spearman's Rho)
-pytest tests/test_ats_scorer.py::TestATSScorerValidation -v
 ```
 
-### Validation Protocol
-The ATS scorer is validated using **Spearman's Rho correlation**:
-- Measures rank correlation between predicted and ground-truth scores
-- Success threshold: ρ > 0.7
-- Results output to console only (no files created)
+## License
 
-## 📚 API Documentation
-
-Once the backend is running, visit:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-
-All endpoints are self-documented with:
-- Request/response schemas
-- Field descriptions
-- Example payloads
-- Error responses
-
-### Key Endpoints
-
-```
-POST /api/v1/documents/upload       # Upload document
-POST /api/v1/documents/detect       # AI detection analysis
-POST /api/v1/documents/score        # ATS scoring analysis
-POST /api/v1/jobs/                  # Create job description
-POST /api/v1/webhooks/stripe        # Stripe webhooks
-GET  /health                        # Health check
-```
-
-## 💳 Billing Integration
-
-**Metered Billing via Stripe:**
-- Usage automatically tracked per analysis
-- Billing events sent to Stripe API
-- Webhook handlers for payment events
-- No file-based logging of usage
-
-## 🚢 Deployment
-
-### Backend (Docker)
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8000"]
-```
-
-### Frontend (Vercel)
-```bash
-# Deploy to Vercel
-vercel --prod
-
-# Or use Vercel GitHub integration
-```
-
-### Environment
-- Backend: Railway, Render, or AWS ECS
-- Frontend: Vercel or Netlify
-- Database: Supabase or AWS RDS
-- Redis: Upstash or AWS ElastiCache
-
-## 🎯 Type Safety
-
-**100% Type Coverage:**
-- Backend: Pydantic models + Python type hints
-- Frontend: TypeScript strict mode
-- MCP Server: TypeScript with strict checks
-
-## 🔒 Security
-
-- JWT authentication via Clerk
-- Rate limiting (60 req/min/user)
-- Input validation via Pydantic
-- CORS configuration
-- Webhook signature verification
-
-## 📊 Monitoring
-
-Structured logging compatible with:
-- Google Cloud Logging
-- Datadog
-- New Relic
-- CloudWatch
-
-## 🤝 Contributing
-
-1. Follow Google Python Style Guide
-2. Use Black for formatting
-3. Add Pydantic Field descriptions
-4. Update tests for new features
-5. No file-based outputs
-
-## 📄 License
-
-MIT License - See LICENSE file for details
-
-## 🙋 Support
-
-For issues or questions:
-- Open a GitHub issue
-- Check API documentation at `/docs`
-- Review test suite for examples
-
----
-
-**Built with modern best practices: Type-safe, self-documenting, database-first, zero clutter.**
+MIT
