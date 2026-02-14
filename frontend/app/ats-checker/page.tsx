@@ -5,6 +5,11 @@ import Link from "next/link";
 import { ArrowLeft, Upload, Link as LinkIcon, FileText, Loader2 } from "lucide-react";
 import ATSResults from "../components/ATSResults";
 import { config } from "../lib/config";
+import {
+  ATSScoringResponseSchema,
+  DocumentUploadResponseSchema,
+  validateResponse,
+} from "../lib/schemas";
 
 export default function ATSChecker() {
   const [resumeFile, setResumeFile] = useState<File | null>(null);
@@ -54,6 +59,11 @@ export default function ATSChecker() {
       }
 
       const uploadData = await uploadResponse.json();
+      const validatedUpload = validateResponse(
+        DocumentUploadResponseSchema,
+        uploadData,
+        "/documents/upload"
+      );
 
       // Then score it
       const scoreResponse = await fetch(`${config.apiV1}/documents/score`, {
@@ -62,7 +72,7 @@ export default function ATSChecker() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          document_id: uploadData.document_id,
+          document_id: validatedUpload.document_id,
           job_description: jobText || undefined,
           job_url: jobUrl || undefined,
         }),
@@ -85,18 +95,23 @@ export default function ATSChecker() {
       }
 
       const scoreData = await scoreResponse.json();
+      const validatedScore = validateResponse(
+        ATSScoringResponseSchema,
+        scoreData,
+        "/documents/score"
+      );
 
       // Transform backend response to match frontend expectations
       const transformedData = {
-        ...scoreData,
-        matched_skills: scoreData.skill_matches
+        ...validatedScore,
+        matched_skills: validatedScore.skill_matches
           ?.filter((sm: any) => sm.matched)
           .map((sm: any) => sm.skill) || [],
         missing_skills: [
-          ...(scoreData.gap_analysis?.missing_required_skills || []),
-          ...(scoreData.gap_analysis?.missing_preferred_skills || []),
+          ...(validatedScore.gap_analysis?.missing_required_skills || []),
+          ...(validatedScore.gap_analysis?.missing_preferred_skills || []),
         ],
-        recommendations: scoreData.gap_analysis?.recommendations || [],
+        recommendations: validatedScore.gap_analysis?.recommendations || [],
       };
 
       setResults(transformedData);

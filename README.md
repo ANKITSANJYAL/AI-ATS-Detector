@@ -236,7 +236,7 @@ and `billing_records`. If this command fails, see
 uvicorn app.main:app --reload --port 8000
 ```
 
-On first startup the server downloads two ML models (~500 MB each) from
+On first startup the server downloads three ML models (~500 MB each) from
 Hugging Face. You will see log output like:
 
 ```
@@ -244,6 +244,8 @@ Loading AI detection model: roberta-base-openai-detector
 Loaded model: roberta-base-openai-detector
 Loading AI detection model: Hello-SimpleAI/chatgpt-detector-roberta
 Loaded model: Hello-SimpleAI/chatgpt-detector-roberta
+Loading AI detection model: fakespot-ai/roberta-base-ai-text-detection-v1
+Loaded model: fakespot-ai/roberta-base-ai-text-detection-v1
 AI detection models pre-warmed
 Application startup complete
 ```

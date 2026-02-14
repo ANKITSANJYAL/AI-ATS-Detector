@@ -170,7 +170,8 @@ async def verify_rate_limit(
     """
     Verify user hasn't exceeded rate limit.
     Uses atomic Redis pipeline to prevent race conditions.
-    Sets standard rate limit headers on the response.
+    Gracefully degrades: if Redis is down, rate limiting is skipped
+    (better to serve requests than to reject everyone).
 
     Args:
         user_id: Authenticated user ID
@@ -180,37 +181,40 @@ async def verify_rate_limit(
     Raises:
         HTTPException: If rate limit exceeded
     """
-    key = f"rate_limit:{user_id}"
+    try:
+        key = f"rate_limit:{user_id}"
 
-    # Atomic: increment and set expiry in a single pipeline
-    pipe = redis.client.pipeline(transaction=True)
-    pipe.incr(key)
-    pipe.ttl(key)
-    pipe.expire(key, 60)
-    results = await pipe.execute()
-    count = results[0]
-    ttl = results[1]
+        # Atomic: increment and set expiry in a single pipeline
+        pipe = redis.client.pipeline(transaction=True)
+        pipe.incr(key)
+        pipe.ttl(key)
+        pipe.expire(key, 60)
+        results = await pipe.execute()
+        count = results[0]
+        ttl = results[1]
 
-    limit = settings.rate_limit_per_minute
-    remaining = max(0, limit - count)
-    reset = max(ttl, 0)
+        limit = settings.rate_limit_per_minute
+        remaining = max(0, limit - count)
+        reset = max(ttl, 0)
 
-    if count > limit:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Rate limit exceeded. Please try again later.",
-            headers={
-                "Retry-After": str(reset),
-                "X-RateLimit-Limit": str(limit),
-                "X-RateLimit-Remaining": "0",
-                "X-RateLimit-Reset": str(reset),
-            },
+        if count > limit:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Rate limit exceeded. Please try again later.",
+                headers={
+                    "Retry-After": str(reset),
+                    "X-RateLimit-Limit": str(limit),
+                    "X-RateLimit-Remaining": "0",
+                    "X-RateLimit-Reset": str(reset),
+                },
+            )
+
+        logger.debug(
+            f"Rate limit: {count}/{limit} for {user_id}, reset in {reset}s"
         )
 
-    # Attach headers to the response via request state (picked up by middleware)
-    # This is a lightweight pattern — the usage tracker middleware reads these.
-    from fastapi import Request
-    # Rate limit info is logged but headers are added via middleware
-    logger.debug(
-        f"Rate limit: {count}/{limit} for {user_id}, reset in {reset}s"
-    )
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Redis is down — gracefully degrade, skip rate limiting
+        logger.warning(f"Rate limiting skipped (Redis unavailable): {e}")

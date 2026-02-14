@@ -46,27 +46,41 @@ class TestAIClassifier:
         return get_ai_classifier()
 
     def test_classify_empty_list(self, classifier: AIClassifier):
-        assert classifier.classify_sentences([]) == []
+        import asyncio
+        assert asyncio.get_event_loop().run_until_complete(
+            classifier.classify_sentences([])
+        ) == []
 
     def test_classify_short_sentence_falls_back_to_heuristic(self, classifier: AIClassifier):
         """Sentences below _MIN_TOKENS_FOR_ML should use heuristic."""
-        result = classifier.classify_sentences(["Hi there."])
+        import asyncio
+        result = asyncio.get_event_loop().run_until_complete(
+            classifier.classify_sentences(["Hi there."])
+        )
         assert len(result) == 1
         assert "text" in result[0]
         assert "is_ai" in result[0]
         assert "confidence" in result[0]
         assert 0.0 <= result[0]["confidence"] <= 1.0
 
-    def test_classify_returns_correct_count(self, classifier: AIClassifier):
+    @pytest.mark.asyncio
+    async def test_classify_returns_correct_count(self, classifier: AIClassifier):
         sentences = HUMAN_TEXT.split(". ")
-        result = classifier.classify_sentences(sentences)
+        result = await classifier.classify_sentences(sentences)
         assert len(result) == len(sentences)
 
-    def test_classify_output_shape(self, classifier: AIClassifier):
-        result = classifier.classify_sentences(["This is a moderately long sentence for testing."])
+    @pytest.mark.asyncio
+    async def test_classify_output_shape(self, classifier: AIClassifier):
+        result = await classifier.classify_sentences(["This is a moderately long sentence for testing."])
         assert isinstance(result, list)
         for item in result:
             assert set(item.keys()) >= {"text", "is_ai", "confidence", "reason"}
+
+    def test_model_versions_available(self, classifier: AIClassifier):
+        """After loading, model_versions should be a dict."""
+        classifier._ensure_models()
+        versions = classifier.model_versions
+        assert isinstance(versions, dict)
 
 
 class TestDetectorLinguisticFeatures:

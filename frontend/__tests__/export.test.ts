@@ -33,7 +33,7 @@ describe("export utilities", () => {
       category_scores: { skills_match: 80, experience: 70, education: 75 },
       matched_skills: ["Python", "FastAPI"],
       missing_skills: ["Kubernetes"],
-      recommendations: [{ text: "Add K8s experience" }],
+      recommendations: ["Add K8s experience"],
     };
 
     expect(() => exportATSCSV(result)).not.toThrow();

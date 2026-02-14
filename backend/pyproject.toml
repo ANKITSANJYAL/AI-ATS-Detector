@@ -83,4 +83,5 @@ addopts = [
     "--cov=app",
     "--cov-report=term-missing",
     "--cov-report=html",
+    "--cov-fail-under=40",
 ]

@@ -187,31 +187,33 @@ async def root():
 async def health_check():
     """
     Health check endpoint.
-    Returns health status of all services.
+    Returns health status of all services with real connectivity checks.
     """
     from datetime import UTC, datetime
     from app.agents.orchestrator import get_orchestrator_agent
 
     orchestrator = get_orchestrator_agent()
 
-    # Check all services
-    redis_client = await get_redis_client()
-    redis_healthy = await redis_client.ping()
-
+    # Real health checks (database, Redis, ML models, agents)
     agent_health = await orchestrator.health_check()
 
-    all_healthy = redis_healthy and all(agent_health.values())
+    all_healthy = all(agent_health.values())
+    # Degraded if any non-critical service is down, unhealthy if critical ones are
+    critical = ["database", "detector_agent"]
+    critical_healthy = all(agent_health.get(k, False) for k in critical)
 
-    status = "healthy" if all_healthy else "degraded"
+    if all_healthy:
+        health_status = "healthy"
+    elif critical_healthy:
+        health_status = "degraded"
+    else:
+        health_status = "unhealthy"
 
     return {
-        "status": status,
+        "status": health_status,
         "version": settings.app_version,
         "timestamp": datetime.now(UTC).isoformat(),
-        "services": {
-            "redis": redis_healthy,
-            **agent_health,
-        }
+        "services": agent_health,
     }
 
 

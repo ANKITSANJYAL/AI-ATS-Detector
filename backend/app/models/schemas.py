@@ -127,6 +127,10 @@ class AIDetectionResponse(BaseModel):
         description="Detailed explanation of detection results",
         default_factory=list
     )
+    model_versions: dict[str, str] = Field(
+        description="Model name to version mapping used for this analysis",
+        default_factory=dict
+    )
     analysis_timestamp: datetime = Field(
         description="When analysis was performed"
     )

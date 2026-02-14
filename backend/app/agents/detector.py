@@ -62,7 +62,7 @@ class DetectorAgent:
             enriched_blocks: list[dict] = []
             for block in blocks:
                 block_sentences = self._split_sentences(block["text"])
-                block_analysis = self.classifier.classify_sentences(block_sentences)
+                block_analysis = await self.classifier.classify_sentences(block_sentences)
                 # Tag each analysis item with its block index so frontend can
                 # reconstruct structure trivially.
                 block_idx = len(enriched_blocks)
@@ -72,7 +72,7 @@ class DetectorAgent:
                 enriched_blocks.append(block)
         else:
             # No structured blocks — fall back to splitting the collapsed text
-            sentence_analysis = self.classifier.classify_sentences(
+            sentence_analysis = await self.classifier.classify_sentences(
                 self._split_sentences(text)
             )
             enriched_blocks = []
@@ -107,6 +107,7 @@ class DetectorAgent:
             sentence_analysis=sentence_analysis,
             structured_blocks=enriched_blocks,
             detailed_analysis=detailed_analysis,
+            model_versions=self.classifier.model_versions,
             analysis_timestamp=datetime.now(UTC),
         )
 

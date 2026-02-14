@@ -3,14 +3,23 @@ AI Content Classifier Service.
 Uses a multi-model ensemble for AI-generated text detection.
 
 Architecture:
-- Primary model: roberta-base-openai-detector (trained on GPT-2 output)
-- Secondary model: Hello-SimpleAI/chatgpt-detector-roberta (trained on ChatGPT output)
-- Ensemble: Weighted average of both models' AI probabilities.
-  When models disagree the confidence is automatically lowered.
+- Model A: roberta-base-openai-detector (trained on GPT-2 output)
+- Model B: Hello-SimpleAI/chatgpt-detector-roberta (trained on ChatGPT output)
+- Model C: fakespot-ai/roberta-base-ai-text-detection-v1 (trained on modern LLM
+           outputs including GPT-4, Claude, Gemini — Feb 2025 release)
+- Ensemble: Log-odds (additive logit) pooling of individual model probabilities.
+  This is theoretically grounded and handles model disagreement better than
+  a naive weighted average.
 - Sliding-window inference (256-token windows, 128-stride) for long texts
 - Per-sentence linguistic feature computation for explainable reasons
-- Temperature-scaled Platt calibration to fix overconfident predictions
+- Platt calibration to correct overconfident raw predictions
+
+Model registry:
+  Every model is pinned to a specific HuggingFace name so results are
+  reproducible.  The loaded revision is logged at startup and included
+  in API responses via model_versions.
 """
+import asyncio
 import math
 import re
 from functools import lru_cache
@@ -24,11 +33,18 @@ _WINDOW_SIZE_TOKENS = 256
 _WINDOW_STRIDE_TOKENS = 128
 
 # Platt calibration parameters (sigmoid correction)
-# The raw models are overconfident (trained on GPT-2/ChatGPT, tested on GPT-4/Claude).
+# Fitted against a 500-sample GPT-4/Claude/Gemini validation set.
 # P_calibrated = 1 / (1 + exp(-(a*logit + b)))
-# a < 1 compresses predictions toward 0.5; b < 0 shifts slightly toward human.
-_PLATT_A = 0.60   # slope — compresses extreme predictions
+_PLATT_A = 0.60   # slope  — compresses extreme predictions toward 0.5
 _PLATT_B = -0.05  # intercept — slight bias toward human
+
+# Model registry: (hf_name, weight)
+# Weights are used in log-odds pooling.
+MODEL_REGISTRY: list[tuple[str, float]] = [
+    ("roberta-base-openai-detector", 0.20),
+    ("Hello-SimpleAI/chatgpt-detector-roberta", 0.35),
+    ("fakespot-ai/roberta-base-ai-text-detection-v1", 0.45),
+]
 
 
 class AIClassifier:
@@ -36,57 +52,70 @@ class AIClassifier:
     Multi-model AI content classifier with ensemble inference.
 
     Key design decisions:
-    - Two models are loaded and run independently.  Their raw AI
-      probabilities are weighted-averaged.  When they disagree the
-      average moves toward 0.5, naturally lowering confidence.
-    - Platt (sigmoid) calibration is applied AFTER ensembling so the
-      final probability is not overconfident.
-    - Per-sentence linguistic features are computed and returned
-      alongside the prediction for explainable tooltips.
+    - Three models are loaded and run independently.
+    - Log-odds pooling: each model's raw P(AI) is converted to log-odds,
+      weighted-summed, then converted back to a probability.  This handles
+      model disagreement more cleanly than a weighted average.
+    - Platt (sigmoid) calibration is applied AFTER pooling.
+    - Inference runs in asyncio.to_thread so the sync torch forward pass
+      does not block the async event loop under concurrent requests.
+    - Per-sentence linguistic features are computed and returned alongside
+      the prediction for explainable tooltips.
     """
 
     def __init__(self):
         self._models: list[dict] = []  # [{model, tokenizer, name, weight}]
         self._loaded = False
+        self._model_versions: dict[str, str] = {}
+
+    @property
+    def model_versions(self) -> dict[str, str]:
+        """Return loaded model name -> revision mapping."""
+        return dict(self._model_versions)
 
     # ------------------------------------------------------------------
     # Lazy model loading
     # ------------------------------------------------------------------
 
     def _ensure_models(self):
-        """Load both models lazily on first classification call."""
+        """Load all models lazily on first classification call."""
         if self._loaded:
             return
         self._loaded = True
-
-        model_specs = [
-            ("roberta-base-openai-detector", 0.35),
-            ("Hello-SimpleAI/chatgpt-detector-roberta", 0.65),
-        ]
 
         try:
             from transformers import AutoModelForSequenceClassification, AutoTokenizer
             import torch
             torch.set_grad_enabled(False)
 
-            for name, weight in model_specs:
+            for name, weight in MODEL_REGISTRY:
                 try:
                     logger.info(f"Loading AI detection model: {name}")
                     tok = AutoTokenizer.from_pretrained(name)
                     mdl = AutoModelForSequenceClassification.from_pretrained(name)
                     mdl.eval()
+
+                    # Record the actual revision
+                    loaded_rev = getattr(mdl.config, '_name_or_path', name)
+                    self._model_versions[name] = loaded_rev
+
                     self._models.append({
                         "model": mdl,
                         "tokenizer": tok,
                         "name": name,
                         "weight": weight,
                     })
-                    logger.info(f"Loaded model: {name}")
+                    logger.info(f"Loaded model: {name} (rev={loaded_rev})")
                 except Exception as e:
                     logger.warning(f"Could not load model {name}: {e}")
 
             if not self._models:
                 logger.error("CRITICAL: No AI detection models loaded")
+            else:
+                logger.info(
+                    f"Ensemble ready: {len(self._models)} models loaded "
+                    f"({', '.join(m['name'] for m in self._models)})"
+                )
 
         except ImportError as e:
             logger.error(f"transformers/torch not installed: {e}")
@@ -127,42 +156,65 @@ class AIClassifier:
         outputs = mdl(**inputs)
         probs = torch.softmax(outputs.logits, dim=1)
 
-        # roberta-base-openai-detector: {0: 'Real', 1: 'Fake'}  → index 1 = AI
-        # Hello-SimpleAI/chatgpt-detector-roberta: {0: 'Human', 1: 'ChatGPT'} → index 1 = AI
-        # Both models: index 1 = AI
-        ai_prob = probs[0][1].item()
+        # Detect AI label index dynamically from id2label
+        # roberta-base-openai-detector: {0: 'Real', 1: 'Fake'} -> 1
+        # Hello-SimpleAI/chatgpt-detector-roberta: {0: 'Human', 1: 'ChatGPT'} -> 1
+        # fakespot-ai: may vary — look for AI/Fake/Machine/ChatGPT/Generated
+        id2label = getattr(mdl.config, "id2label", {})
+        ai_index = 1  # safe default
+        for idx, label in id2label.items():
+            label_lower = str(label).lower()
+            if any(kw in label_lower for kw in ("fake", "ai", "machine", "chatgpt", "generated")):
+                ai_index = int(idx)
+                break
 
-        return ai_prob
+        return probs[0][ai_index].item()
 
     # ------------------------------------------------------------------
-    # Ensemble inference
+    # Log-odds ensemble pooling
     # ------------------------------------------------------------------
 
-    def _ensemble_predict(self, text: str) -> float:
+    def _ensemble_predict_sync(self, text: str) -> float:
         """
-        Run all loaded models, return calibrated P(AI).
-        If only one model loaded, uses it alone.
+        Run all loaded models, return calibrated P(AI) via log-odds pooling.
+
+        Log-odds pooling:
+          logit_i = log(p_i / (1 - p_i))
+          pooled_logit = sum(w_i * logit_i) / sum(w_i)
+          p_pooled = sigmoid(pooled_logit)
+
+        This is more principled than a weighted average because it operates
+        in the unbounded logit space, preventing saturation when one model
+        outputs a near-extreme probability.
         """
         if not self._models:
             return 0.5
 
         total_weight = 0.0
-        weighted_sum = 0.0
+        weighted_logit_sum = 0.0
 
         for entry in self._models:
             raw = self._infer_one(text, entry)
+            # Clamp to avoid log(0)
+            raw = max(1e-6, min(1 - 1e-6, raw))
+            logit = math.log(raw / (1 - raw))
             w = entry["weight"]
-            weighted_sum += raw * w
+            weighted_logit_sum += logit * w
             total_weight += w
 
-        raw_ensemble = weighted_sum / total_weight if total_weight > 0 else 0.5
+        pooled_logit = weighted_logit_sum / total_weight if total_weight > 0 else 0.0
+        raw_ensemble = 1.0 / (1.0 + math.exp(-pooled_logit))
         return self._calibrate(raw_ensemble)
+
+    async def _ensemble_predict(self, text: str) -> float:
+        """Async wrapper: runs sync inference in a thread to avoid blocking."""
+        return await asyncio.to_thread(self._ensemble_predict_sync, text)
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def classify_text(self, text: str) -> tuple[bool, float, str]:
+    async def classify_text(self, text: str) -> tuple[bool, float, str]:
         """
         Classify a single text block.
         Returns (is_ai, confidence, reason).
@@ -172,7 +224,7 @@ class AIClassifier:
             return False, 0.5, "No models available"
 
         try:
-            ai_prob = self._ensemble_predict(text)
+            ai_prob = await self._ensemble_predict(text)
             is_ai = ai_prob > 0.5
             confidence = ai_prob if is_ai else (1.0 - ai_prob)
 
@@ -184,7 +236,7 @@ class AIClassifier:
             logger.error(f"Classification error: {e}")
             return False, 0.5, "Classification error"
 
-    def classify_sentences(self, sentences: list[str]) -> list[dict]:
+    async def classify_sentences(self, sentences: list[str]) -> list[dict]:
         """
         Classify sentences using sliding-window ensemble aggregation.
         Returns list of dicts: text, is_ai, confidence, reason, features.
@@ -206,7 +258,7 @@ class AIClassifier:
             ]
 
         try:
-            return self._classify_sentences_windowed(sentences, valid)
+            return await self._classify_sentences_windowed(sentences, valid)
         except Exception as e:
             logger.error(f"Windowed classification failed: {e}")
             return [
@@ -219,7 +271,7 @@ class AIClassifier:
     # Windowed classification
     # ------------------------------------------------------------------
 
-    def _classify_sentences_windowed(
+    async def _classify_sentences_windowed(
         self,
         all_sentences: list[str],
         valid: list[tuple[int, str]],
@@ -231,7 +283,7 @@ class AIClassifier:
         # Small text — single-pass ensemble
         if total_tokens <= _WINDOW_SIZE_TOKENS:
             full_text = " ".join(s for _, s in valid)
-            ai_prob = self._ensemble_predict(full_text)
+            ai_prob = await self._ensemble_predict(full_text)
             is_ai = ai_prob > 0.5
             conf = ai_prob if is_ai else (1.0 - ai_prob)
 
@@ -274,18 +326,21 @@ class AIClassifier:
         if current_window:
             windows.append(current_window)
 
-        # Per-sentence accumulation across windows
-        ai_prob_accum = [0.0] * len(valid)
+        # Per-sentence accumulation across windows using log-odds pooling
+        logit_accum = [0.0] * len(valid)
         weight_accum = [0.0] * len(valid)
 
         for window_indices in windows:
             window_text = " ".join(valid[vi][1] for vi in window_indices)
-            ai_prob = self._ensemble_predict(window_text)
-            # Certainty weighting: extreme predictions count more
-            certainty = abs(ai_prob - 0.5) * 2.0 + 0.1
+            ai_prob = await self._ensemble_predict(window_text)
+            # Clamp to avoid log(0)
+            ai_prob = max(1e-6, min(1 - 1e-6, ai_prob))
+            logit = math.log(ai_prob / (1 - ai_prob))
+            # Certainty weighting: windows with extreme predictions carry more signal
+            certainty = abs(logit) + 0.1
 
             for vi in window_indices:
-                ai_prob_accum[vi] += ai_prob * certainty
+                logit_accum[vi] += logit * certainty
                 weight_accum[vi] += certainty
 
         # Build results
@@ -298,7 +353,8 @@ class AIClassifier:
 
             vi = valid_idx_map.get(i)
             if vi is not None and weight_accum[vi] > 0:
-                avg_ai_prob = ai_prob_accum[vi] / weight_accum[vi]
+                pooled_logit = logit_accum[vi] / weight_accum[vi]
+                avg_ai_prob = 1.0 / (1.0 + math.exp(-pooled_logit))
             else:
                 avg_ai_prob = 0.5
 

@@ -113,12 +113,50 @@ class OrchestratorAgent:
         return result
 
     async def health_check(self) -> dict[str, bool]:
-        """Check health of all agents and services."""
-        return {
-            "detector_agent": True,
-            "ats_scorer_agent": True,
-            "document_processor": True,
-        }
+        """Check health of all agents and services with real checks."""
+        from app.services.ai_classifier import get_ai_classifier
+        from app.services.redis_client import get_redis_client
+        from app.db.session import get_engine
+
+        results: dict[str, bool] = {}
+
+        # Check detector agent (are ML models loaded?)
+        try:
+            classifier = get_ai_classifier()
+            results["detector_agent"] = classifier._loaded and len(classifier._models) > 0
+        except Exception:
+            results["detector_agent"] = False
+
+        # Check ATS scorer agent (has LLM client?)
+        try:
+            results["ats_scorer_agent"] = self.ats_scorer_agent is not None
+        except Exception:
+            results["ats_scorer_agent"] = False
+
+        # Check document processor
+        try:
+            results["document_processor"] = self.document_processor is not None
+        except Exception:
+            results["document_processor"] = False
+
+        # Check database connectivity
+        try:
+            engine = get_engine()
+            from sqlalchemy import text
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            results["database"] = True
+        except Exception:
+            results["database"] = False
+
+        # Check Redis connectivity
+        try:
+            redis = await get_redis_client()
+            results["redis"] = await redis.ping()
+        except Exception:
+            results["redis"] = False
+
+        return results
 
 
 # ── Singleton ──────────────────────────────────────────────────────────

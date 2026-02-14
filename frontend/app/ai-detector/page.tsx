@@ -5,11 +5,27 @@ import Link from "next/link";
 import { ArrowLeft, Upload, FileText, Loader2 } from "lucide-react";
 import AIDetectorResults from "../components/AIDetectorResults";
 import { config } from "../lib/config";
+import {
+  AIDetectionResponseSchema,
+  DocumentUploadResponseSchema,
+  validateResponse,
+} from "../lib/schemas";
+
+/** Analysis progress stages for skeleton UX */
+const PROGRESS_STAGES = [
+  "Uploading document...",
+  "Extracting text...",
+  "Running 3-model ensemble (GPT-2, ChatGPT, Modern LLM)...",
+  "Applying log-odds pooling and calibration...",
+  "Computing linguistic features...",
+  "Generating explanations...",
+];
 
 export default function AIDetector() {
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [documentText, setDocumentText] = useState("");
   const [loading, setLoading] = useState(false);
+  const [progressStage, setProgressStage] = useState(0);
   const [results, setResults] = useState<any>(null);
   const [error, setError] = useState("");
 
@@ -29,6 +45,7 @@ export default function AIDetector() {
 
     setLoading(true);
     setError("");
+    setProgressStage(0);
 
     try {
       const formData = new FormData();
@@ -41,7 +58,8 @@ export default function AIDetector() {
         formData.append("file", blob, "document.txt");
       }
 
-      // First upload the document
+      // Stage 1: Upload
+      setProgressStage(0);
       const uploadResponse = await fetch(`${config.apiV1}/documents/upload`, {
         method: "POST",
         body: formData,
@@ -51,9 +69,15 @@ export default function AIDetector() {
         throw new Error("Failed to upload document");
       }
 
-      const uploadData = await uploadResponse.json();
+      const uploadRaw = await uploadResponse.json();
+      const uploadData = validateResponse(
+        DocumentUploadResponseSchema,
+        uploadRaw,
+        "/documents/upload"
+      );
 
-      // Then detect AI content
+      // Stage 2: Detect
+      setProgressStage(2);
       const detectResponse = await fetch(`${config.apiV1}/documents/detect`, {
         method: "POST",
         headers: {
@@ -69,7 +93,15 @@ export default function AIDetector() {
         throw new Error("Failed to analyze document");
       }
 
-      const detectData = await detectResponse.json();
+      setProgressStage(4);
+      const detectRaw = await detectResponse.json();
+      const detectData = validateResponse(
+        AIDetectionResponseSchema,
+        detectRaw,
+        "/documents/detect"
+      );
+
+      setProgressStage(5);
       setResults(detectData);
     } catch (err: any) {
       setError(err.message || "An error occurred");
@@ -106,70 +138,101 @@ export default function AIDetector() {
           </div>
         )}
 
-        {/* Document Upload */}
-        <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-8 mb-8">
-          <h2 className="text-2xl font-bold text-white mb-6 flex items-center">
-            <FileText className="w-6 h-6 mr-3 text-blue-500" />
-            Your Document
-          </h2>
-
-          {/* File Upload */}
-          <div className="mb-6">
-            <label className="block text-slate-300 mb-3">Upload File (PDF, DOC, DOCX, JPG, PNG)</label>
-            <div className="relative">
-              <input
-                type="file"
-                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt"
-                onChange={handleFileUpload}
-                className="hidden"
-                id="document-upload"
-              />
-              <label
-                htmlFor="document-upload"
-                className="flex items-center justify-center w-full px-6 py-4 border-2 border-dashed border-slate-600 rounded-lg cursor-pointer hover:border-blue-500 transition-colors"
-              >
-                <Upload className="w-5 h-5 mr-2 text-slate-400" />
-                <span className="text-slate-300">
-                  {documentFile ? documentFile.name : "Click to upload"}
-                </span>
-              </label>
+        {/* Loading Skeleton */}
+        {loading && (
+          <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-8 mb-8">
+            <h2 className="text-xl font-bold text-white mb-6">Analyzing Document</h2>
+            <div className="space-y-4">
+              {PROGRESS_STAGES.map((stage, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  {i < progressStage ? (
+                    <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
+                      <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  ) : i === progressStage ? (
+                    <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full border border-slate-600" />
+                  )}
+                  <span className={i <= progressStage ? "text-white" : "text-slate-500"}>
+                    {stage}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {/* Skeleton bars */}
+            <div className="mt-8 space-y-3">
+              <div className="h-4 bg-slate-700 rounded animate-pulse w-3/4" />
+              <div className="h-4 bg-slate-700 rounded animate-pulse w-1/2" />
+              <div className="h-4 bg-slate-700 rounded animate-pulse w-5/6" />
+              <div className="h-4 bg-slate-700 rounded animate-pulse w-2/3" />
             </div>
           </div>
+        )}
 
-          <div className="text-center text-slate-500 mb-6">OR</div>
+        {/* Document Upload — hidden when loading */}
+        {!loading && (
+          <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-8 mb-8">
+            <h2 className="text-2xl font-bold text-white mb-6 flex items-center">
+              <FileText className="w-6 h-6 mr-3 text-blue-500" />
+              Your Document
+            </h2>
 
-          {/* Text Input */}
-          <div>
-            <label className="block text-slate-300 mb-3">Paste Document Text</label>
-            <textarea
-              value={documentText}
-              onChange={(e) => {
-                setDocumentText(e.target.value);
-                setDocumentFile(null); // Clear file if text is entered
-              }}
-              placeholder="Paste your document content here..."
-              className="w-full h-96 px-4 py-3 bg-slate-900/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-            />
+            {/* File Upload */}
+            <div className="mb-6">
+              <label className="block text-slate-300 mb-3">Upload File (PDF, DOC, DOCX, JPG, PNG)</label>
+              <div className="relative">
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  id="document-upload"
+                />
+                <label
+                  htmlFor="document-upload"
+                  className="flex items-center justify-center w-full px-6 py-4 border-2 border-dashed border-slate-600 rounded-lg cursor-pointer hover:border-blue-500 transition-colors"
+                >
+                  <Upload className="w-5 h-5 mr-2 text-slate-400" />
+                  <span className="text-slate-300">
+                    {documentFile ? documentFile.name : "Click to upload"}
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div className="text-center text-slate-500 mb-6">OR</div>
+
+            {/* Text Input */}
+            <div>
+              <label className="block text-slate-300 mb-3">Paste Document Text</label>
+              <textarea
+                value={documentText}
+                onChange={(e) => {
+                  setDocumentText(e.target.value);
+                  setDocumentFile(null); // Clear file if text is entered
+                }}
+                placeholder="Paste your document content here..."
+                className="w-full h-96 px-4 py-3 bg-slate-900/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Submit Button */}
-        <div className="text-center">
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="px-12 py-4 bg-blue-500 text-white rounded-lg font-semibold hover:bg-blue-600 transition-colors disabled:bg-slate-700 disabled:cursor-not-allowed inline-flex items-center"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                Analyzing...
-              </>
-            ) : (
-              "Detect AI Content"
-            )}
-          </button>
-        </div>
+        {!loading && (
+          <div className="text-center">
+            <button
+              onClick={handleSubmit}
+              disabled={loading}
+              className="px-12 py-4 bg-blue-500 text-white rounded-lg font-semibold hover:bg-blue-600 transition-colors disabled:bg-slate-700 disabled:cursor-not-allowed inline-flex items-center"
+            >
+              Detect AI Content
+            </button>
+          </div>
+        )}
       </div>
     </main>
   );

@@ -547,6 +547,23 @@ export default function AIDetectorResults({ results, onReset }: AIDetectorResult
             </div>
           </div>
         </div>
+
+        {/* Model Versions (transparency section) */}
+        {results.model_versions && Object.keys(results.model_versions).length > 0 && (
+          <div className="mt-8 bg-slate-800/30 border border-slate-700/50 rounded-xl p-6">
+            <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
+              Ensemble Models Used
+            </h3>
+            <div className="grid sm:grid-cols-3 gap-3">
+              {Object.entries(results.model_versions).map(([name, rev]: [string, any]) => (
+                <div key={name} className="bg-slate-800/50 rounded-lg px-3 py-2">
+                  <div className="text-xs text-blue-400 font-mono truncate">{name}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">{rev}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );
