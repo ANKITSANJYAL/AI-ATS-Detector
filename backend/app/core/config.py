@@ -126,7 +126,11 @@ class Settings(BaseSettings):
         default=[
             "application/pdf",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "text/plain"
+            "application/msword",
+            "text/plain",
+            "image/jpeg",
+            "image/png",
+            "application/octet-stream",
         ],
         description="Allowed MIME types for document uploads",
     )

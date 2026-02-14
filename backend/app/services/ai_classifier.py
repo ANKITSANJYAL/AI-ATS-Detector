@@ -5,8 +5,8 @@ Uses a multi-model ensemble for AI-generated text detection.
 Architecture:
 - Model A: roberta-base-openai-detector (trained on GPT-2 output)
 - Model B: Hello-SimpleAI/chatgpt-detector-roberta (trained on ChatGPT output)
-- Model C: fakespot-ai/roberta-base-ai-text-detection-v1 (trained on modern LLM
-           outputs including GPT-4, Claude, Gemini — Feb 2025 release)
+- Model C: andreas122001/roberta-academic-detector (trained on academic
+           machine-generated text — compatible with transformers 4.x)
 - Ensemble: Log-odds (additive logit) pooling of individual model probabilities.
   This is theoretically grounded and handles model disagreement better than
   a naive weighted average.
@@ -43,7 +43,7 @@ _PLATT_B = -0.05  # intercept — slight bias toward human
 MODEL_REGISTRY: list[tuple[str, float]] = [
     ("roberta-base-openai-detector", 0.20),
     ("Hello-SimpleAI/chatgpt-detector-roberta", 0.35),
-    ("fakespot-ai/roberta-base-ai-text-detection-v1", 0.45),
+    ("andreas122001/roberta-academic-detector", 0.45),
 ]
 
 

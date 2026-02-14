@@ -41,9 +41,9 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import httpx; httpx.get('http://localhost:8000/health')"
 
-# Run application with gunicorn
+# Run application with gunicorn (using asyncio loop to avoid uvloop deadlock)
 CMD ["gunicorn", "app.main:app", \
-     "--worker-class", "uvicorn.workers.UvicornWorker", \
+     "--worker-class", "app.worker.AsyncioUvicornWorker", \
      "--workers", "4", \
      "--bind", "0.0.0.0:8000", \
      "--access-logfile", "-", \

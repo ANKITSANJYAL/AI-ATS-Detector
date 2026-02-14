@@ -1,6 +1,10 @@
 """
 FastAPI application entry point.
 Self-documenting API with OpenAPI integration.
+
+NOTE: uvloop 0.21 + Python 3.13 causes a deadlock where the server
+accepts TCP connections but never processes HTTP requests.
+Always start with: uvicorn app.main:app --loop asyncio
 """
 from contextlib import asynccontextmanager
 
@@ -226,4 +230,5 @@ if __name__ == "__main__":
         port=8000,
         reload=settings.debug,
         log_level=settings.log_level.lower(),
+        loop="asyncio",
     )
