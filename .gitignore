@@ -74,6 +74,24 @@ htmlcov/
 .mypy_cache/
 
 # ========================
+# Docker
+# ========================
+docker-compose.override.yml
+
+# ========================
+# Alembic
+# ========================
+backend/alembic/versions/__pycache__/
+
+# ========================
+# SSL Certificates
+# ========================
+nginx/ssl/*.pem
+nginx/ssl/*.key
+nginx/ssl/*.crt
+!nginx/ssl/.gitkeep
+
+# ========================
 # Misc
 # ========================
 *.log

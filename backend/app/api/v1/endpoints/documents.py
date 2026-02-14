@@ -27,6 +27,7 @@ from app.models.schemas import (
     DocumentUploadResponse,
 )
 from app.services.redis_client import RedisClient, get_redis_client
+from app.core.sanitize import sanitize_filename, sanitize_text
 
 logger = get_logger(__name__)
 
@@ -80,11 +81,14 @@ async def upload_document(
     content = await file.read()
     document_id = uuid.uuid4()
 
+    # Sanitize filename to prevent stored XSS
+    safe_filename = sanitize_filename(file.filename or "upload")
+
     # Persist to PostgreSQL
     doc = Document(
         id=document_id,
         user_id=user_id,
-        filename=file.filename or "upload",
+        filename=safe_filename,
         document_type=document_type.value,
         mime_type=file.content_type,
         content=content,

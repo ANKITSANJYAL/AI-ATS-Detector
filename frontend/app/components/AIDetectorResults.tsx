@@ -1,7 +1,8 @@
 "use client";
 
-import { ArrowLeft, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, AlertCircle, ChevronDown, ChevronUp, Download } from "lucide-react";
 import { useState, useMemo } from "react";
+import { exportDetectionCSV, exportDetectionReport } from "../lib/export";
 
 interface SentenceFeatures {
   word_count?: number;
@@ -274,7 +275,25 @@ export default function AIDetectorResults({ results, onReset }: AIDetectorResult
           New Analysis
         </button>
 
-        <h1 className="text-4xl font-bold text-white mb-12">AI Detection Results</h1>
+        <div className="flex items-center justify-between mb-12">
+          <h1 className="text-4xl font-bold text-white">AI Detection Results</h1>
+          <div className="flex gap-2">
+            <button
+              onClick={() => exportDetectionCSV(results)}
+              className="inline-flex items-center px-3 py-2 text-sm bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors"
+            >
+              <Download className="w-4 h-4 mr-1.5" />
+              CSV
+            </button>
+            <button
+              onClick={() => exportDetectionReport(results)}
+              className="inline-flex items-center px-3 py-2 text-sm bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors"
+            >
+              <Download className="w-4 h-4 mr-1.5" />
+              Report
+            </button>
+          </div>
+        </div>
 
         {/* AI Probability Score */}
         <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-12 mb-8">

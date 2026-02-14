@@ -8,6 +8,10 @@ export default authMiddleware({
     "/sign-up(.*)",
     "/ai-detector",
     "/ats-checker",
+    "/history",
+    "/pricing",
+    "/about",
+    "/contact",
   ],
 });
 

@@ -13,12 +13,34 @@ from app.core.logging import setup_logging, get_logger
 from app.db.session import close_db, get_engine
 from app.db.models import Base
 from app.middleware.usage_tracker import UsageTrackerMiddleware
+from app.middleware.api_version import APIVersionMiddleware
 from app.services.redis_client import close_redis_client, get_redis_client
 from app.services.mcp_client import close_mcp_client
 
 # Setup logging
 setup_logging()
 logger = get_logger(__name__)
+
+# Initialize Sentry (no-op if DSN is empty)
+_settings_init = get_settings()
+if _settings_init.sentry_dsn:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+
+        sentry_sdk.init(
+            dsn=_settings_init.sentry_dsn,
+            environment=_settings_init.environment,
+            release=f"docguard@{_settings_init.app_version}",
+            traces_sample_rate=0.2 if _settings_init.environment == "production" else 1.0,
+            profiles_sample_rate=0.1,
+            integrations=[FastApiIntegration(), SqlalchemyIntegration()],
+            send_default_pii=False,
+        )
+        logger.info("Sentry error tracking initialized")
+    except ImportError:
+        logger.warning("sentry-sdk not installed — error tracking disabled")
 
 
 @asynccontextmanager
@@ -34,15 +56,24 @@ async def lifespan(app: FastAPI):
     await get_redis_client()
     logger.info("Redis connected")
 
-    # Initialize database tables
+    # Verify database connectivity (migrations managed by Alembic)
     try:
         engine = get_engine()
         async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables initialized")
+            await conn.execute(Base.metadata.tables["documents"].select().limit(0))
+        logger.info("Database connection verified (migrations managed by Alembic)")
     except Exception as exc:
-        logger.error(f"Database initialization failed: {exc}")
+        logger.error(f"Database connection check failed: {exc}")
         logger.warning("Application starting in DEGRADED mode — DB endpoints will fail")
+
+    # Pre-warm ML models to avoid cold-start latency on first request
+    try:
+        from app.services.ai_classifier import get_ai_classifier
+        classifier = get_ai_classifier()
+        classifier._ensure_models()
+        logger.info("AI detection models pre-warmed")
+    except Exception as exc:
+        logger.warning(f"Model pre-warming failed (will lazy-load): {exc}")
 
     logger.info("Application startup complete")
 
@@ -124,6 +155,9 @@ app.add_middleware(
 
 # Add usage tracking middleware
 app.add_middleware(UsageTrackerMiddleware)
+
+# Add API versioning headers middleware
+app.add_middleware(APIVersionMiddleware)
 
 # Include API router
 app.include_router(api_router, prefix=settings.api_v1_prefix)

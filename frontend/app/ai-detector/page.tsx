@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Upload, FileText, Loader2 } from "lucide-react";
 import AIDetectorResults from "../components/AIDetectorResults";
+import { config } from "../lib/config";
 
 export default function AIDetector() {
   const [documentFile, setDocumentFile] = useState<File | null>(null);
@@ -41,7 +42,7 @@ export default function AIDetector() {
       }
 
       // First upload the document
-      const uploadResponse = await fetch("http://localhost:8000/api/v1/documents/upload", {
+      const uploadResponse = await fetch(`${config.apiV1}/documents/upload`, {
         method: "POST",
         body: formData,
       });
@@ -53,7 +54,7 @@ export default function AIDetector() {
       const uploadData = await uploadResponse.json();
 
       // Then detect AI content
-      const detectResponse = await fetch("http://localhost:8000/api/v1/documents/detect", {
+      const detectResponse = await fetch(`${config.apiV1}/documents/detect`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

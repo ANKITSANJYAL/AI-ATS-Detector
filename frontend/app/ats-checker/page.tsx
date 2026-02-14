@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Upload, Link as LinkIcon, FileText, Loader2 } from "lucide-react";
 import ATSResults from "../components/ATSResults";
+import { config } from "../lib/config";
 
 export default function ATSChecker() {
   const [resumeFile, setResumeFile] = useState<File | null>(null);
@@ -43,7 +44,7 @@ export default function ATSChecker() {
       }
 
       // First upload the document
-      const uploadResponse = await fetch("http://localhost:8000/api/v1/documents/upload", {
+      const uploadResponse = await fetch(`${config.apiV1}/documents/upload`, {
         method: "POST",
         body: formData,
       });
@@ -55,7 +56,7 @@ export default function ATSChecker() {
       const uploadData = await uploadResponse.json();
 
       // Then score it
-      const scoreResponse = await fetch("http://localhost:8000/api/v1/documents/score", {
+      const scoreResponse = await fetch(`${config.apiV1}/documents/score`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

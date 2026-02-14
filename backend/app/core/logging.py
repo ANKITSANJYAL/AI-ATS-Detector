@@ -1,20 +1,51 @@
 """
 Structured logging configuration for the application.
 Follows Google Cloud Logging structured format.
+
+Production logging pipeline:
+  Application → JSON stdout → Docker log driver → aggregator
+  Supported aggregators: Google Cloud Logging, ELK, Datadog, Grafana Loki
+
+  All logs include: app, version, environment, severity, logger, request_id (when available).
+  Set LOG_LEVEL in .env to control verbosity.
 """
 import logging
 import sys
+import contextvars
 from typing import Any
+from uuid import uuid4
 
 from pythonjsonlogger import jsonlogger
 
 from app.core.config import get_settings
 
 
+# Context variable for request ID tracing across async calls
+request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "request_id", default=""
+)
+
+
+def set_request_id(request_id: str | None = None) -> str:
+    """Set (or generate) a request ID for the current async context."""
+    rid = request_id or uuid4().hex[:16]
+    request_id_var.set(rid)
+    return rid
+
+
+def get_request_id() -> str:
+    """Get the current request ID."""
+    return request_id_var.get("")
+
+
 class CustomJsonFormatter(jsonlogger.JsonFormatter):
     """
     Custom JSON formatter that adds application context.
-    Compatible with Google Cloud Logging and other structured log aggregators.
+    Compatible with Google Cloud Logging, ELK, Datadog, and
+    other structured log aggregators.
+
+    Emitted fields:
+      timestamp, severity, logger, app, version, environment, request_id, message
     """
 
     def add_fields(
@@ -32,6 +63,11 @@ class CustomJsonFormatter(jsonlogger.JsonFormatter):
         log_record["app"] = settings.app_name
         log_record["version"] = settings.app_version
         log_record["environment"] = settings.environment
+
+        # Attach request ID if available
+        rid = get_request_id()
+        if rid:
+            log_record["request_id"] = rid
 
 
 def setup_logging() -> None:

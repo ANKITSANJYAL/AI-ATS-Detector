@@ -1,18 +1,129 @@
 "use client";
 
-import { useState } from "react";
-import { ArrowLeft, Target, TrendingUp } from "lucide-react";
+import { useState, useMemo } from "react";
+import { ArrowLeft, Target, TrendingUp, BarChart3, Shield, Loader2, Download } from "lucide-react";
+import AIDetectorResults from "./AIDetectorResults";
+import { exportATSCSV } from "../lib/export";
+import { config } from "../lib/config";
 
 interface ATSResultsProps {
   results: any;
   onReset: () => void;
 }
 
+/** Radar chart drawn with pure SVG — no dependencies */
+function RadarChart({ scores }: { scores: { label: string; value: number; color: string }[] }) {
+  const cx = 150;
+  const cy = 150;
+  const radius = 110;
+  const levels = 4; // concentric rings
+  const n = scores.length;
+
+  const angleSlice = (2 * Math.PI) / n;
+
+  /** Convert (index, fraction 0-1) to SVG point */
+  const point = (i: number, frac: number) => ({
+    x: cx + radius * frac * Math.cos(angleSlice * i - Math.PI / 2),
+    y: cy + radius * frac * Math.sin(angleSlice * i - Math.PI / 2),
+  });
+
+  // Build the polygon path for the data values
+  const dataPoints = scores.map((s, i) => point(i, s.value / 100));
+  const dataPath = dataPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ") + " Z";
+
+  return (
+    <svg viewBox="0 0 300 300" className="w-full max-w-[320px] mx-auto">
+      {/* Concentric level rings */}
+      {Array.from({ length: levels }, (_, li) => {
+        const frac = (li + 1) / levels;
+        const pts = scores.map((_, i) => point(i, frac));
+        const d = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ") + " Z";
+        return <path key={li} d={d} fill="none" stroke="rgb(71 85 105 / 0.5)" strokeWidth="1" />;
+      })}
+
+      {/* Axis lines */}
+      {scores.map((_, i) => {
+        const p = point(i, 1);
+        return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="rgb(71 85 105 / 0.4)" strokeWidth="1" />;
+      })}
+
+      {/* Data polygon */}
+      <path d={dataPath} fill="rgb(16 185 129 / 0.20)" stroke="rgb(16 185 129)" strokeWidth="2" />
+
+      {/* Data dots + labels */}
+      {scores.map((s, i) => {
+        const dp = dataPoints[i];
+        const lp = point(i, 1.18);
+        return (
+          <g key={i}>
+            <circle cx={dp.x} cy={dp.y} r="4" fill={s.color} />
+            <text
+              x={lp.x}
+              y={lp.y}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              className="fill-slate-300 text-[10px] font-medium"
+            >
+              {s.label}
+            </text>
+            <text
+              x={dp.x}
+              y={dp.y - 10}
+              textAnchor="middle"
+              className="fill-white text-[10px] font-bold"
+            >
+              {Math.round(s.value)}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/** Horizontal bar for one sub-score */
+function SubScoreBar({ label, value, weight, color }: { label: string; value: number; weight: string; color: string }) {
+  const pct = Math.round(value);
+  return (
+    <div>
+      <div className="flex justify-between items-baseline mb-1.5">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-slate-200">{label}</span>
+          <span className="text-xs text-slate-500">({weight})</span>
+        </div>
+        <span className="text-sm font-bold text-white">{pct}/100</span>
+      </div>
+      <div className="w-full bg-slate-700 rounded-full h-3">
+        <div
+          className="h-3 rounded-full transition-all duration-700 ease-out"
+          style={{ width: `${pct}%`, backgroundColor: color }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function ATSResults({ results, onReset }: ATSResultsProps) {
-  const [activeTab, setActiveTab] = useState<"score" | "recommendations">("score");
+  const [activeTab, setActiveTab] = useState<"score" | "breakdown" | "recommendations">("score");
+  const [aiCheckLoading, setAiCheckLoading] = useState(false);
+  const [aiCheckResults, setAiCheckResults] = useState<any>(null);
+  const [aiCheckError, setAiCheckError] = useState("");
 
   // Calculate score percentage
   const score = Math.round(results.overall_score || 0);
+
+  // Sub-scores from backend
+  const subScores = useMemo(() => {
+    const semantic = results.semantic_similarity_score ?? 0;
+    const keyword = results.keyword_match_score ?? 0;
+    const format = results.format_score ?? 0;
+    // Skill match percentage — derive from skill_matches array
+    const matches = results.skill_matches || [];
+    const matched = matches.filter((s: any) => s.matched).length;
+    const skill = matches.length > 0 ? (matched / matches.length) * 100 : 50;
+
+    return { semantic, keyword, format, skill };
+  }, [results]);
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-emerald-900 via-slate-900 to-slate-900">
@@ -26,7 +137,16 @@ export default function ATSResults({ results, onReset }: ATSResultsProps) {
           New Analysis
         </button>
 
-        <h1 className="text-4xl font-bold text-white mb-12">ATS Analysis Results</h1>
+        <h1 className="text-4xl font-bold text-white mb-12 flex items-center justify-between">
+          <span>ATS Analysis Results</span>
+          <button
+            onClick={() => exportATSCSV(results)}
+            className="inline-flex items-center px-3 py-2 text-sm bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors font-normal"
+          >
+            <Download className="w-4 h-4 mr-1.5" />
+            Export CSV
+          </button>
+        </h1>
 
         {/* Tabs */}
         <div className="flex space-x-4 mb-8 border-b border-slate-700">
@@ -40,6 +160,17 @@ export default function ATSResults({ results, onReset }: ATSResultsProps) {
           >
             <Target className="w-5 h-5 inline-block mr-2" />
             ATS Score
+          </button>
+          <button
+            onClick={() => setActiveTab("breakdown")}
+            className={`px-6 py-3 font-semibold transition-colors ${
+              activeTab === "breakdown"
+                ? "text-emerald-400 border-b-2 border-emerald-400"
+                : "text-slate-400 hover:text-white"
+            }`}
+          >
+            <BarChart3 className="w-5 h-5 inline-block mr-2" />
+            Score Breakdown
           </button>
           <button
             onClick={() => setActiveTab("recommendations")}
@@ -163,6 +294,106 @@ export default function ATSResults({ results, onReset }: ATSResultsProps) {
           </div>
         )}
 
+        {/* Score Breakdown Tab */}
+        {activeTab === "breakdown" && (
+          <div className="space-y-8">
+            <div className="grid md:grid-cols-2 gap-8">
+              {/* Radar Chart */}
+              <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-8">
+                <h3 className="text-xl font-bold text-white mb-6">Score Radar</h3>
+                <RadarChart
+                  scores={[
+                    { label: "Semantic", value: subScores.semantic, color: "#6366f1" },
+                    { label: "Keywords", value: subScores.keyword, color: "#f59e0b" },
+                    { label: "Format", value: subScores.format, color: "#06b6d4" },
+                    { label: "Skills", value: subScores.skill, color: "#10b981" },
+                  ]}
+                />
+              </div>
+
+              {/* Sub-Score Bars */}
+              <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-8">
+                <h3 className="text-xl font-bold text-white mb-6">Component Scores</h3>
+                <div className="space-y-6">
+                  <SubScoreBar label="Semantic Similarity" value={subScores.semantic} weight="30%" color="#6366f1" />
+                  <SubScoreBar label="Keyword Match" value={subScores.keyword} weight="30%" color="#f59e0b" />
+                  <SubScoreBar label="Resume Format" value={subScores.format} weight="20%" color="#06b6d4" />
+                  <SubScoreBar label="Skills Match" value={subScores.skill} weight="20%" color="#10b981" />
+                </div>
+
+                {/* Weighted formula explanation */}
+                <div className="mt-8 p-4 bg-slate-900/50 rounded-lg border border-slate-700">
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    <span className="font-semibold text-slate-400">How it is calculated: </span>
+                    Overall = Semantic (30%) + Keywords (30%) + Format (20%) + Skills (20%).
+                    Semantic similarity uses embedding cosine distance between your resume
+                    and the job description. Keyword match counts shared technical terms.
+                    Format checks for standard sections, dates, and contact info.
+                    Skills match verifies extracted skills against your resume text.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Score interpretation */}
+            <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-8">
+              <h3 className="text-xl font-bold text-white mb-4">What Each Score Means</h3>
+              <div className="grid md:grid-cols-2 gap-6">
+                {[
+                  {
+                    title: "Semantic Similarity",
+                    score: subScores.semantic,
+                    color: "#6366f1",
+                    desc: "How closely your resume's meaning aligns with the job description, measured by AI embedding similarity.",
+                    tip: subScores.semantic < 60
+                      ? "Tailor your summary and experience bullets to echo the job's language and responsibilities."
+                      : "Good alignment. Keep using relevant terminology from the job posting.",
+                  },
+                  {
+                    title: "Keyword Match",
+                    score: subScores.keyword,
+                    color: "#f59e0b",
+                    desc: "Percentage of important technical terms from the job posting found in your resume.",
+                    tip: subScores.keyword < 60
+                      ? "Add missing keywords naturally into your experience and skills sections."
+                      : "Solid keyword coverage. Ensure they appear in context, not just listed.",
+                  },
+                  {
+                    title: "Resume Format",
+                    score: subScores.format,
+                    color: "#06b6d4",
+                    desc: "Checks for standard ATS-readable sections like Experience, Education, Skills, contact info, and dates.",
+                    tip: subScores.format < 60
+                      ? "Add clearly labeled sections (Experience, Education, Skills) and include dates and contact details."
+                      : "Your format is ATS-friendly. Avoid graphics and multi-column layouts.",
+                  },
+                  {
+                    title: "Skills Match",
+                    score: subScores.skill,
+                    color: "#10b981",
+                    desc: "How many of the extracted required and preferred skills appear in your resume.",
+                    tip: subScores.skill < 60
+                      ? "Review the missing skills list and add relevant ones you genuinely possess."
+                      : "Strong skills match. Consider adding quantified achievements for each skill.",
+                  },
+                ].map((item, i) => (
+                  <div key={i} className="p-4 bg-slate-900/40 rounded-lg border border-slate-700">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
+                      <span className="font-semibold text-white text-sm">{item.title}</span>
+                      <span className="ml-auto text-sm font-bold" style={{ color: item.color }}>
+                        {Math.round(item.score)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mb-2">{item.desc}</p>
+                    <p className="text-xs text-emerald-400/80 italic">{item.tip}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Recommendations Tab */}
         {activeTab === "recommendations" && (
           <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-8">
@@ -185,6 +416,68 @@ export default function ATSResults({ results, onReset }: ATSResultsProps) {
                 <p className="text-slate-500">No recommendations available at this time</p>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Cross-Pipeline: AI Check */}
+        {!aiCheckResults && (
+          <div className="mt-10 bg-slate-800/50 border border-slate-700 rounded-2xl p-8 text-center">
+            <Shield className="w-10 h-10 text-blue-400 mx-auto mb-4" />
+            <h3 className="text-xl font-bold text-white mb-2">
+              Does your resume contain AI-generated content?
+            </h3>
+            <p className="text-slate-400 mb-6 max-w-md mx-auto text-sm">
+              Run the same resume through our AI detector to make sure
+              it reads as authentically human before submitting.
+            </p>
+            {aiCheckError && (
+              <p className="text-red-400 text-sm mb-4">{aiCheckError}</p>
+            )}
+            <button
+              onClick={async () => {
+                if (!results.document_id) return;
+                setAiCheckLoading(true);
+                setAiCheckError("");
+                try {
+                  const res = await fetch(`${config.apiV1}/documents/detect`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ document_id: results.document_id }),
+                  });
+                  if (!res.ok) throw new Error("Detection failed");
+                  const data = await res.json();
+                  setAiCheckResults(data);
+                } catch (err: any) {
+                  setAiCheckError(err.message || "Failed to run AI detection");
+                } finally {
+                  setAiCheckLoading(false);
+                }
+              }}
+              disabled={aiCheckLoading}
+              className="px-8 py-3 bg-blue-500 text-white rounded-lg font-semibold hover:bg-blue-600 transition-colors disabled:bg-slate-700 disabled:cursor-not-allowed inline-flex items-center"
+            >
+              {aiCheckLoading ? (
+                <>
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  Checking...
+                </>
+              ) : (
+                <>
+                  <Shield className="w-5 h-5 mr-2" />
+                  Check for AI Content
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* AI Detection Results inline */}
+        {aiCheckResults && (
+          <div className="mt-10">
+            <AIDetectorResults
+              results={aiCheckResults}
+              onReset={() => setAiCheckResults(null)}
+            />
           </div>
         )}
       </div>

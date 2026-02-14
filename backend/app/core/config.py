@@ -53,14 +53,16 @@ class Settings(BaseSettings):
     )
     redis_ttl: int = Field(default=3600, description="Default cache TTL in seconds")
 
-    # Celery
+    # Background Jobs (reserved for future async processing)
+    # celery_broker_url and celery_result_backend are available
+    # but not actively used — processing is synchronous for now.
     celery_broker_url: str = Field(
         default="redis://localhost:6379/1",
-        description="Celery broker URL",
+        description="Celery broker URL (reserved for future use)",
     )
     celery_result_backend: str = Field(
         default="redis://localhost:6379/2",
-        description="Celery result backend URL",
+        description="Celery result backend URL (reserved for future use)",
     )
 
     # LLM Configuration
@@ -135,6 +137,12 @@ class Settings(BaseSettings):
         description="API rate limit per minute per user",
     )
 
+    # Observability
+    sentry_dsn: str = Field(
+        default="",
+        description="Sentry DSN for error tracking (leave empty to disable)",
+    )
+
     # Logging
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
         default="INFO",
@@ -147,6 +155,24 @@ class Settings(BaseSettings):
         """Ensure file size is reasonable."""
         if v < 1 or v > 100:
             raise ValueError("max_file_size_mb must be between 1 and 100")
+        return v
+
+    @field_validator("cors_origins")
+    @classmethod
+    def validate_cors_origins(cls, v: list[str]) -> list[str]:
+        """
+        Reject wildcard CORS in production.
+        Ensures only explicit origins are allowed.
+        """
+        for origin in v:
+            if origin == "*":
+                import os
+                env = os.getenv("ENVIRONMENT", "development")
+                if env == "production":
+                    raise ValueError(
+                        "Wildcard '*' CORS origin is not allowed in production. "
+                        "Specify explicit domains."
+                    )
         return v
 
 

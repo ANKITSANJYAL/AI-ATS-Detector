@@ -1,6 +1,6 @@
 """
 Usage tracking middleware for metered billing.
-Records API usage to PostgreSQL and logs for Stripe integration.
+Records API usage to PostgreSQL, reports to Stripe, and adds rate-limit headers.
 """
 import time
 from typing import Callable
@@ -8,7 +8,7 @@ from typing import Callable
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.core.logging import get_logger
+from app.core.logging import get_logger, set_request_id
 from app.db.session import get_session_factory
 from app.db.models import UsageRecord
 
@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 class UsageTrackerMiddleware(BaseHTTPMiddleware):
     """
     Middleware to track API usage for billing purposes.
-    Persists usage records to PostgreSQL for auditing.
+    Persists usage records to PostgreSQL and reports to Stripe.
     """
 
     async def dispatch(
@@ -28,7 +28,14 @@ class UsageTrackerMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         start_time = time.time()
 
+        # Inject request ID for distributed tracing
+        incoming_id = request.headers.get("X-Request-ID")
+        request_id = set_request_id(incoming_id)
+
         response = await call_next(request)
+
+        # Echo request ID back in response
+        response.headers["X-Request-ID"] = request_id
 
         duration = time.time() - start_time
 
@@ -55,6 +62,15 @@ class UsageTrackerMiddleware(BaseHTTPMiddleware):
                 except Exception as exc:
                     logger.warning(f"Failed to persist usage record: {exc}")
 
+                # Report to Stripe (fire-and-forget, non-blocking)
+                if response.status_code < 400:
+                    try:
+                        from app.services.billing import get_billing_service
+                        billing = get_billing_service()
+                        await billing.report_usage(user_id, feature, quantity=1)
+                    except Exception as exc:
+                        logger.debug(f"Stripe usage report skipped: {exc}")
+
                 logger.info(
                     "Billable usage",
                     extra={
@@ -67,6 +83,7 @@ class UsageTrackerMiddleware(BaseHTTPMiddleware):
                     },
                 )
 
+        # Add processing time header
         response.headers["X-Process-Time"] = f"{duration:.3f}"
         return response
 
