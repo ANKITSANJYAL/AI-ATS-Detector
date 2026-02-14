@@ -90,6 +90,7 @@ Vocabulary Diversity: ${(results.linguistic_features?.vocabulary_diversity * 100
 Coherence Score: ${(results.linguistic_features?.coherence_score * 100).toFixed(0)}%
 Transition Patterns: ${(results.linguistic_features?.transition_patterns * 100).toFixed(0)}%
 Stylistic Consistency: ${(results.linguistic_features?.stylistic_consistency * 100).toFixed(0)}%
+Burstiness: ${(results.linguistic_features?.burstiness_score * 100).toFixed(0)}%
 
 SENTENCE-LEVEL ANALYSIS
 ${"─".repeat(50)}

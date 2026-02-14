@@ -89,6 +89,12 @@ class LinguisticFeatures(BaseModel):
         ge=0.0,
         le=1.0
     )
+    burstiness_score: float = Field(
+        default=0.5,
+        description="Burstiness score (0-1). High = bursty/human-like variation in sentence length. Low = uniform/AI-like.",
+        ge=0.0,
+        le=1.0
+    )
 
 
 class AIDetectionResponse(BaseModel):

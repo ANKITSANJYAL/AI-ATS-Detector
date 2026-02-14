@@ -10,9 +10,9 @@ Architecture:
 - Ensemble: Log-odds (additive logit) pooling of individual model probabilities.
   This is theoretically grounded and handles model disagreement better than
   a naive weighted average.
-- Sliding-window inference (256-token windows, 128-stride) for long texts
+- Sliding-window inference (512-token windows, 256-stride) for long texts
 - Per-sentence linguistic feature computation for explainable reasons
-- Platt calibration to correct overconfident raw predictions
+- Light calibration to correct systematic bias without crushing signal
 
 Model registry:
   Every model is pinned to a specific HuggingFace name so results are
@@ -28,22 +28,25 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Sliding window parameters
-_WINDOW_SIZE_TOKENS = 256
-_WINDOW_STRIDE_TOKENS = 128
+# Sliding window parameters — larger windows provide more context
+_WINDOW_SIZE_TOKENS = 512
+_WINDOW_STRIDE_TOKENS = 256
 
-# Platt calibration parameters (sigmoid correction)
-# Fitted against a 500-sample GPT-4/Claude/Gemini validation set.
-# P_calibrated = 1 / (1 + exp(-(a*logit + b)))
-_PLATT_A = 0.60   # slope  — compresses extreme predictions toward 0.5
-_PLATT_B = -0.05  # intercept — slight bias toward human
+# Calibration parameters
+# Light bias correction only — NOT aggressive Platt scaling.
+# The old _PLATT_A=0.60 was crushing signals toward 0.5.
+# Now: just a small intercept shift, slope = 1.0 (identity).
+_CALIBRATION_SLOPE = 1.0     # preserve model signal strength
+_CALIBRATION_INTERCEPT = 0.0 # no systematic bias correction
 
 # Model registry: (hf_name, weight)
-# Weights are used in log-odds pooling.
+# Rebalanced: ChatGPT-specific detector gets the most weight because
+# modern AI text is predominantly ChatGPT/GPT-4 style.
+# The academic detector supplements but shouldn't dominate.
 MODEL_REGISTRY: list[tuple[str, float]] = [
-    ("roberta-base-openai-detector", 0.20),
-    ("Hello-SimpleAI/chatgpt-detector-roberta", 0.35),
-    ("andreas122001/roberta-academic-detector", 0.45),
+    ("roberta-base-openai-detector", 0.25),
+    ("Hello-SimpleAI/chatgpt-detector-roberta", 0.45),
+    ("andreas122001/roberta-academic-detector", 0.30),
 ]
 
 
@@ -121,18 +124,25 @@ class AIClassifier:
             logger.error(f"transformers/torch not installed: {e}")
 
     # ------------------------------------------------------------------
-    # Platt calibration
+    # Light calibration (bias correction only)
     # ------------------------------------------------------------------
 
     @staticmethod
     def _calibrate(raw_ai_prob: float) -> float:
         """
-        Apply Platt sigmoid calibration to compress overconfident scores.
-        Maps raw ensemble probability -> calibrated probability.
+        Apply light calibration to the raw ensemble probability.
+
+        Previous implementation used aggressive Platt scaling (slope=0.60)
+        which crushed strong AI signals toward 0.5, causing false negatives.
+
+        Current implementation: identity transform with optional intercept
+        shift.  _CALIBRATION_SLOPE=1.0 preserves the full signal from the
+        ensemble.  Only adjust _CALIBRATION_INTERCEPT if you observe a
+        consistent systematic bias on a held-out validation set.
         """
         p = max(1e-6, min(1 - 1e-6, raw_ai_prob))
         logit = math.log(p / (1 - p))
-        cal_logit = _PLATT_A * logit + _PLATT_B
+        cal_logit = _CALIBRATION_SLOPE * logit + _CALIBRATION_INTERCEPT
         return 1.0 / (1.0 + math.exp(-cal_logit))
 
     # ------------------------------------------------------------------

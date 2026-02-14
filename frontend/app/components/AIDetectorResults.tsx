@@ -522,6 +522,21 @@ export default function AIDetectorResults({ results, onReset }: AIDetectorResult
                   />
                 </div>
               </div>
+
+              <div>
+                <div className="flex justify-between text-sm mb-2">
+                  <span className="text-slate-300">Burstiness</span>
+                  <span className="text-slate-400">
+                    {Math.round((results.linguistic_features?.burstiness_score || 0.5) * 100)}%
+                  </span>
+                </div>
+                <div className="w-full bg-slate-700 rounded-full h-2">
+                  <div
+                    className="bg-purple-500 h-2 rounded-full transition-all"
+                    style={{ width: `${(results.linguistic_features?.burstiness_score || 0.5) * 100}%` }}
+                  />
+                </div>
+              </div>
             </div>
           </div>
 

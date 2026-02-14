@@ -14,6 +14,7 @@ export const LinguisticFeaturesSchema = z.object({
   coherence_score: z.number().min(0).max(1),
   transition_patterns: z.number().min(0).max(1),
   stylistic_consistency: z.number().min(0).max(1),
+  burstiness_score: z.number().min(0).max(1).optional().default(0.5),
 });
 
 export const SentenceAnalysisSchema = z.object({

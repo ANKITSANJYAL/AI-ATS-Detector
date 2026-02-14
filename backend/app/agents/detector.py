@@ -189,12 +189,33 @@ class DetectorAgent:
         # AI tends to be very consistent; humans vary more
         stylistic_consistency = 1.0 - sentence_complexity
 
+        # --- Burstiness: measures variability in consecutive sentence lengths ---
+        # Human writers produce "bursty" patterns — short sentences followed
+        # by long ones, or clusters of similar lengths then sudden changes.
+        # AI text has much more uniform sentence-to-sentence transitions.
+        if len(sentence_lengths) >= 3:
+            deltas = [
+                abs(sentence_lengths[i + 1] - sentence_lengths[i])
+                for i in range(len(sentence_lengths) - 1)
+            ]
+            mean_delta = sum(deltas) / len(deltas)
+            if mean_delta > 0:
+                delta_std = (sum((d - mean_delta) ** 2 for d in deltas) / len(deltas)) ** 0.5
+                # CV of deltas: high = bursty (human), low = uniform (AI)
+                burstiness_cv = delta_std / mean_delta
+                burstiness_score = min(1.0, burstiness_cv / 1.5)  # Normalize
+            else:
+                burstiness_score = 0.0  # All same length → very AI-like
+        else:
+            burstiness_score = 0.5  # Not enough data
+
         return LinguisticFeatures(
             sentence_complexity=round(sentence_complexity, 3),
             vocabulary_diversity=round(vocabulary_diversity, 3),
             coherence_score=round(min(1.0, coherence_score), 3),
             transition_patterns=round(transition_patterns, 3),
             stylistic_consistency=round(stylistic_consistency, 3),
+            burstiness_score=round(burstiness_score, 3),
         )
 
     def _identify_ai_sections(self, text: str) -> list[str]:
@@ -223,9 +244,14 @@ class DetectorAgent:
         """
         Calculate overall AI generation probability.
 
-        Uses the per-sentence AI probability directly (already calibrated
-        by the multi-model ensemble + Platt scaling in AIClassifier).
-        Document-level linguistic features add a small ±5% adjustment.
+        Architecture:
+        - 90% weight: ML ensemble per-sentence predictions (already calibrated
+          with identity calibration, preserving model signal)
+        - 10% weight: Document-level linguistic features (burstiness, complexity,
+          vocabulary diversity, coherence, formality)
+
+        The linguistic features provide a secondary signal that captures
+        document-level patterns the sentence-level models may miss.
 
         Returns:
             AI probability (0-1)
@@ -233,10 +259,7 @@ class DetectorAgent:
         if not sentence_analysis:
             return 0.3  # No data — lean toward human
 
-        # --- ML component (95% weight) ---
-        # Each sentence already carries a calibrated confidence and is_ai flag.
-        # Convert to P(AI) per sentence: if is_ai, P(AI)=confidence; else P(AI)=1-confidence.
-        # Weight longer sentences more (they carry more signal).
+        # --- ML component (90% weight) ---
         total_weight = 0.0
         weighted_ai_prob = 0.0
 
@@ -245,36 +268,52 @@ class DetectorAgent:
             is_ai = sent.get("is_ai", False)
             word_count = sent.get("features", {}).get("word_count", 5)
 
-            # Convert to P(AI) in [0, 1]
             p_ai = conf if is_ai else (1.0 - conf)
-            # Sentence weight: sqrt(word_count) so long sentences count more
-            # but don't dominate completely.
             w = max(1.0, word_count ** 0.5)
             weighted_ai_prob += p_ai * w
             total_weight += w
 
         ml_score = weighted_ai_prob / total_weight if total_weight > 0 else 0.5
 
-        # --- Linguistic features (5% weight) — minor adjustment ---
-        feature_adj = 0.0
+        # --- Linguistic feature score (10% weight) ---
+        # Each feature contributes a P(AI) estimate.  We average them.
+        feature_signals = []
 
-        # Low complexity (uniform sentences) → nudge toward AI
-        feature_adj += (0.5 - features.sentence_complexity) * 0.02
+        # Low burstiness → AI (most powerful linguistic signal)
+        # burstiness_score: 0 = uniform (AI), 1 = bursty (human)
+        feature_signals.append(1.0 - features.burstiness_score)
 
-        # Low vocab diversity → nudge toward AI
-        feature_adj += (0.5 - features.vocabulary_diversity) * 0.02
+        # Low sentence complexity (uniform lengths) → AI
+        feature_signals.append(1.0 - features.sentence_complexity)
 
-        # Too-high coherence → nudge toward AI
-        if features.coherence_score > 0.8:
-            feature_adj += 0.01
+        # High stylistic consistency → AI
+        feature_signals.append(features.stylistic_consistency)
 
-        # Overall: 95% ML + 5% features
-        combined = ml_score * 0.95 + (ml_score + feature_adj) * 0.05
+        # Low vocabulary diversity → AI
+        feature_signals.append(max(0.0, 1.0 - features.vocabulary_diversity * 1.5))
+
+        # High formality ratio → AI (transition_patterns is inverted:
+        # low value = more formal = more AI)
+        feature_signals.append(1.0 - features.transition_patterns)
+
+        # Too-high coherence → AI
+        if features.coherence_score > 0.6:
+            feature_signals.append(min(1.0, (features.coherence_score - 0.6) * 2.5))
+
+        linguistic_score = sum(feature_signals) / len(feature_signals)
+
+        # Final blend: 90% ML + 10% linguistic
+        combined = ml_score * 0.90 + linguistic_score * 0.10
         return max(0.0, min(1.0, combined))
 
     def _determine_result(self, ai_probability: float) -> DetectionResult:
         """
         Determine detection result based on probability.
+
+        Thresholds are tightened compared to naive 0.3/0.7 because the
+        ensemble (with identity calibration) produces well-separated
+        probabilities.  This reduces the "Mixed" bucket to genuine
+        ambiguity.
 
         Args:
             ai_probability: AI generation probability
@@ -282,9 +321,9 @@ class DetectorAgent:
         Returns:
             Detection result classification
         """
-        if ai_probability < 0.3:
+        if ai_probability < 0.35:
             return DetectionResult.HUMAN
-        elif ai_probability > 0.7:
+        elif ai_probability > 0.65:
             return DetectionResult.AI_GENERATED
         else:
             return DetectionResult.MIXED
@@ -297,6 +336,13 @@ class DetectorAgent:
         """
         Calculate confidence in detection.
 
+        Redesigned formula:
+        - Base confidence starts at 0.50 (we always have SOME information)
+        - Extremeness of probability adds up to +0.35
+        - Feature consistency adds up to +0.15
+        - This means even "Mixed" results (ai_prob≈0.5) get ~50-65% confidence
+          instead of the old 19-27%.
+
         Args:
             features: Linguistic features
             ai_probability: AI probability score
@@ -304,24 +350,31 @@ class DetectorAgent:
         Returns:
             Confidence score (0-1)
         """
-        # Higher confidence when probability is extreme (near 0 or 1)
-        # and features are consistent
+        # Base confidence — we ran 3 models, so even an uncertain result
+        # has meaningful backing.
+        base = 0.50
 
+        # Extremeness bonus: max +0.35 when probability is at 0 or 1
         extremeness = abs(ai_probability - 0.5) * 2  # 0 to 1
+        extremeness_bonus = extremeness * 0.35
 
-        # Feature consistency
+        # Feature consistency bonus: max +0.15
         feature_values = [
             features.sentence_complexity,
             features.vocabulary_diversity,
             features.coherence_score,
             features.transition_patterns,
             features.stylistic_consistency,
+            features.burstiness_score,
         ]
         avg_feature = sum(feature_values) / len(feature_values)
-        consistency = 1.0 - (sum(abs(f - avg_feature) for f in feature_values) / len(feature_values))
+        consistency = 1.0 - (
+            sum(abs(f - avg_feature) for f in feature_values) / len(feature_values)
+        )
+        consistency_bonus = consistency * 0.15
 
-        confidence = (extremeness * 0.7) + (consistency * 0.3)
-        return min(1.0, confidence)
+        confidence = base + extremeness_bonus + consistency_bonus
+        return min(1.0, max(0.0, confidence))
 
     def _generate_analysis_explanation(
         self,
@@ -402,6 +455,15 @@ class DetectorAgent:
         elif features.stylistic_consistency < 0.5:
             explanations.append(
                 "Natural stylistic variation indicates human authorship"
+            )
+
+        if features.burstiness_score < 0.25:
+            explanations.append(
+                "Low burstiness: sentence lengths follow a uniform pattern typical of AI generation"
+            )
+        elif features.burstiness_score > 0.7:
+            explanations.append(
+                "High burstiness: natural variation in sentence length patterns suggests human writing"
             )
 
         # Ensure at least 3 explanations

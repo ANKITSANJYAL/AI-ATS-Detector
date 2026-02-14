@@ -241,7 +241,12 @@ Guidelines:
         job_text: str
     ) -> float:
         """
-        Calculate keyword matching score.
+        Calculate keyword matching score using TF-based importance weighting.
+
+        Instead of treating all words equally, we weight keywords by how
+        distinctive they are to the job description (simple TF-based
+        importance).  Common English words are excluded, and multi-word
+        technical phrases are treated atomically.
 
         Args:
             resume_text: Resume content
@@ -250,54 +255,117 @@ Guidelines:
         Returns:
             Keyword match score (0-100)
         """
-        # Extract important keywords from job description
-        job_words = set(self._extract_keywords(job_text))
-        resume_words = set(self._extract_keywords(resume_text))
+        job_keywords = set(self._extract_keywords(job_text))
+        resume_keywords = set(self._extract_keywords(resume_text))
 
-        if not job_words:
+        if not job_keywords:
             return 0.0
 
-        # Calculate match percentage
-        matches = len(job_words & resume_words)
-        match_percentage = (matches / len(job_words)) * 100
+        # Separate keywords into high-value (likely technical/role-specific)
+        # and regular keywords.  High-value: multi-word terms, acronyms,
+        # or words that look like technologies (contain digits, dots, +, #).
+        high_value = set()
+        regular = set()
+        for kw in job_keywords:
+            if (' ' in kw or re.search(r'[0-9.+#]', kw) or kw.upper() == kw and len(kw) >= 2):
+                high_value.add(kw)
+            else:
+                regular.add(kw)
+
+        # Score: high-value matches are worth 2x
+        hv_matches = len(high_value & resume_keywords)
+        reg_matches = len(regular & resume_keywords)
+
+        hv_total = len(high_value) if high_value else 0
+        reg_total = len(regular) if regular else 0
+
+        total_weight = hv_total * 2 + reg_total
+        if total_weight == 0:
+            return 0.0
+
+        matched_weight = hv_matches * 2 + reg_matches
+        match_percentage = (matched_weight / total_weight) * 100
 
         return min(100.0, match_percentage)
 
     def _extract_keywords(self, text: str) -> list[str]:
         """
-        Extract keywords from text, including multi-word terms, acronyms,
-        and short technology names.
+        Extract meaningful keywords from text, filtering out common English
+        words that would inflate match scores artificially.
+
+        Strategy:
+        1. Extract multi-word technical phrases (e.g. "machine learning")
+        2. Extract uppercase acronyms from original text (AWS, CI/CD)
+        3. Extract single words but filter through an extensive stop list
+           that covers common verbs, prepositions, articles, etc.
         """
         text_lower = text.lower()
 
-        # Remove common stop words
+        # Comprehensive stop words — includes common resume/job description
+        # filler words that would produce false matches
         stop_words = {
-            'the', 'and', 'or', 'but', 'for', 'with', 'from', 'this', 'that',
-            'have', 'has', 'had', 'will', 'would', 'should', 'could', 'may',
-            'can', 'are', 'was', 'were', 'been', 'being', 'into', 'through',
-            'about', 'also', 'our', 'your', 'their', 'they', 'who', 'what',
+            # Articles, prepositions, conjunctions
+            'the', 'a', 'an', 'and', 'or', 'but', 'for', 'with', 'from',
+            'this', 'that', 'these', 'those', 'it', 'its', 'in', 'on', 'at',
+            'to', 'of', 'by', 'as', 'is', 'are', 'was', 'were', 'be', 'been',
+            'being', 'into', 'through', 'about', 'also', 'our', 'your', 'their',
+            'they', 'them', 'we', 'us', 'you', 'he', 'she', 'who', 'what',
             'when', 'where', 'which', 'not', 'all', 'any', 'each', 'more',
+            'most', 'some', 'such', 'than', 'too', 'very', 'just', 'if',
+            'so', 'no', 'up', 'out', 'then', 'do', 'did', 'does',
+            # Common verbs (non-technical)
+            'have', 'has', 'had', 'will', 'would', 'should', 'could', 'may',
+            'can', 'make', 'made', 'take', 'took', 'get', 'got', 'give',
+            'gave', 'come', 'came', 'go', 'went', 'see', 'saw', 'know',
+            'knew', 'think', 'thought', 'use', 'used', 'find', 'found',
+            'work', 'need', 'want', 'look', 'like', 'new', 'way',
+            # Common resume/job filler words
+            'ability', 'able', 'including', 'include', 'includes', 'well',
+            'year', 'years', 'time', 'company', 'team', 'role', 'position',
+            'experience', 'working', 'strong', 'excellent', 'good', 'great',
+            'looking', 'opportunity', 'join', 'help', 'part', 'based',
+            'within', 'across', 'must', 'required', 'preferred', 'plus',
+            'etc', 'e.g', 'i.e', 'other', 'others', 'both', 'either',
+            'following', 'related', 'relevant', 'key', 'core',
+            'understanding', 'knowledge', 'familiar', 'familiarity',
+            'proficiency', 'proficient', 'using', 'ensuring', 'provide',
+            'providing', 'support', 'supporting', 'develop', 'developing',
+            'manage', 'managing', 'maintain', 'maintaining', 'create',
+            'creating', 'build', 'building', 'implement', 'implementing',
         }
 
-        # 1. Extract multi-word technical terms (e.g. "machine learning", "node.js")
+        # 1. Extract multi-word technical phrases (2-3 words, likely terms)
         multi_word = re.findall(
             r'\b[a-z][a-z.+#]+(?:\s+[a-z][a-z.+#]+){1,3}\b', text_lower
         )
-        multi_word = [t for t in multi_word if not all(w in stop_words for w in t.split())]
+        multi_word = [
+            t for t in multi_word
+            if not all(w in stop_words for w in t.split())
+            and len(t) > 4  # Skip very short phrases
+        ]
 
-        # 2. Extract single words (including short ones like "go", "ai", "c#", "r")
-        single_words = re.findall(r'\b[a-z#.+]{2,}\b', text_lower)
-        single_words = [w for w in single_words if w not in stop_words]
-
-        # 3. Extract uppercase acronyms from original text (AWS, GCP, CI/CD)
+        # 2. Extract uppercase acronyms from original text (AWS, GCP, CI/CD)
         acronyms = re.findall(r'\b[A-Z][A-Z0-9/]{1,10}\b', text)
         acronyms = [a.lower() for a in acronyms]
+
+        # 3. Extract single words: 3+ chars, not in stop list
+        single_words = re.findall(r'\b[a-z#.+]{3,}\b', text_lower)
+        single_words = [w for w in single_words if w not in stop_words]
 
         return list(set(multi_word + single_words + acronyms))
 
     def _analyze_format(self, resume_text: str) -> float:
         """
-        Analyze resume format and structure.
+        Analyze resume format and structure for ATS compatibility.
+
+        Checks 7 dimensions that real ATS systems care about:
+        1. Standard section headers (Experience, Education, Skills, Summary)
+        2. Date patterns (indicates structured work history)
+        3. Contact information (email, phone)
+        4. Bullet points / list formatting
+        5. Quantified achievements (numbers, percentages, dollar amounts)
+        6. Appropriate length
+        7. Action verbs in bullets
 
         Args:
             resume_text: Resume content
@@ -306,29 +374,67 @@ Guidelines:
             Format score (0-100)
         """
         score = 0.0
+        text_lower = resume_text.lower()
 
-        # Check for common sections
+        # 1. Standard section headers (up to 28 points — 7 per header)
         sections = [
-            r'\b(experience|work history|employment)\b',
-            r'\b(education|academic)\b',
-            r'\b(skills|competencies|expertise)\b',
-            r'\b(summary|objective|profile)\b',
+            r'\b(experience|work\s+history|employment|professional\s+experience)\b',
+            r'\b(education|academic|degree|university|college)\b',
+            r'\b(skills|technical\s+skills|competencies|expertise|technologies)\b',
+            r'\b(summary|objective|profile|about\s+me|overview)\b',
         ]
-
         for pattern in sections:
-            if re.search(pattern, resume_text.lower()):
-                score += 25.0
+            if re.search(pattern, text_lower):
+                score += 7.0
 
-        # Check for dates (indicates work history)
-        if re.search(r'\b(20\d{2}|19\d{2})\b', resume_text):
-            score += 10.0
+        # 2. Date patterns — indicates structured chronology (up to 10)
+        date_patterns = re.findall(
+            r'\b(20\d{2}|19\d{2})\s*[-–—to]+\s*(20\d{2}|19\d{2}|present|current)\b',
+            text_lower
+        )
+        if date_patterns:
+            score += min(10.0, len(date_patterns) * 2.5)
 
-        # Check for contact information
+        # 3. Contact information (up to 12)
         if re.search(r'\b[\w.-]+@[\w.-]+\.\w+\b', resume_text):  # Email
-            score += 10.0
+            score += 6.0
+        if re.search(r'\b\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b', resume_text):  # Phone
+            score += 6.0
 
-        if re.search(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b', resume_text):  # Phone
-            score += 10.0
+        # 4. Bullet points / list formatting (up to 15)
+        bullet_lines = re.findall(r'^[\s]*[•\-\*▪◦●]\s', resume_text, re.MULTILINE)
+        if bullet_lines:
+            score += min(15.0, len(bullet_lines) * 1.0)
+
+        # 5. Quantified achievements — numbers, %, $, x (up to 15)
+        quant_matches = re.findall(
+            r'\b\d+[%+]|\$[\d,.]+|\b\d+x\b|\b\d{1,3},\d{3}\b|\b\d+\+?\s*(years?|projects?|clients?|team\s*members?)',
+            text_lower
+        )
+        score += min(15.0, len(quant_matches) * 2.5)
+
+        # 6. Appropriate length — 300-1200 words is ideal for ATS (up to 8)
+        word_count = len(resume_text.split())
+        if 300 <= word_count <= 1200:
+            score += 8.0
+        elif 200 <= word_count < 300 or 1200 < word_count <= 1800:
+            score += 4.0
+        # Very short or very long → 0 points
+
+        # 7. Action verbs at start of lines (up to 12)
+        action_verbs = {
+            'led', 'developed', 'managed', 'created', 'designed', 'implemented',
+            'built', 'improved', 'achieved', 'delivered', 'launched', 'optimized',
+            'architected', 'established', 'reduced', 'increased', 'streamlined',
+            'collaborated', 'mentored', 'drove', 'spearheaded', 'analyzed',
+            'engineered', 'automated', 'maintained', 'resolved', 'coordinated',
+        }
+        lines = resume_text.split('\n')
+        action_starts = sum(
+            1 for line in lines
+            if line.strip() and line.strip().split()[0].lower().rstrip('.,;:') in action_verbs
+        )
+        score += min(12.0, action_starts * 2.0)
 
         return min(100.0, score)
 
@@ -576,7 +682,16 @@ Return ONLY a JSON array of 5 strings (no other text):
         skill_matches: list[SkillMatch],
     ) -> float:
         """
-        Calculate overall ATS score.
+        Calculate overall ATS score with rebalanced weights.
+
+        Weights:
+        - 25% semantic similarity (broad conceptual alignment)
+        - 25% keyword match (ATS keyword scanning)
+        - 25% skill match (direct skill coverage — most actionable)
+        - 25% format (ATS parsing success)
+
+        Equal weights across all four dimensions prevent any single
+        weak area from being masked by strong performance elsewhere.
 
         Args:
             semantic_score: Semantic similarity score
@@ -594,12 +709,12 @@ Return ONLY a JSON array of 5 strings (no other text):
         else:
             skill_score = 50.0  # Neutral score if no skills specified
 
-        # Weighted average
+        # Equal weighted average
         overall = (
-            semantic_score * 0.3 +
-            keyword_score * 0.3 +
-            format_score * 0.2 +
-            skill_score * 0.2
+            semantic_score * 0.25 +
+            keyword_score * 0.25 +
+            format_score * 0.25 +
+            skill_score * 0.25
         )
 
         return min(100.0, overall)

@@ -23,6 +23,7 @@ describe("AIDetectionResponseSchema", () => {
       coherence_score: 0.5,
       transition_patterns: 0.4,
       stylistic_consistency: 0.3,
+      burstiness_score: 0.6,
     },
     flagged_sections: [],
     sentence_analysis: [
