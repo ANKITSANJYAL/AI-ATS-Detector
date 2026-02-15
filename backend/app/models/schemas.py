@@ -298,6 +298,112 @@ class BillingWebhookEvent(BaseModel):
     data: dict = Field(description="Event data payload")
 
 
+# AI Humanizer Schemas
+class HumanizeSentenceRequest(BaseModel):
+    """Request to humanize a single AI-flagged sentence."""
+
+    sentence: str = Field(description="The AI-flagged sentence to rewrite", min_length=5)
+    context_before: str = Field(default="", description="1-2 sentences before for context")
+    context_after: str = Field(default="", description="1-2 sentences after for context")
+    tone: Literal["natural", "casual", "professional", "academic"] = Field(
+        default="natural", description="Desired writing tone"
+    )
+
+
+class HumanizeBatchRequest(BaseModel):
+    """Request to humanize multiple AI-flagged sentences."""
+
+    document_id: str = Field(description="Source document ID")
+    sentences: list[dict] = Field(
+        description="List of sentences with 'text', 'index', optional 'context_before'/'context_after'",
+        min_length=1,
+    )
+    tone: Literal["natural", "casual", "professional", "academic"] = Field(
+        default="natural", description="Desired writing tone"
+    )
+
+
+class RewriteOption(BaseModel):
+    """A single rewrite suggestion."""
+
+    text: str = Field(description="Rewritten sentence text")
+    approach: str = Field(description="Brief label for the approach used")
+
+
+class HumanizeResponse(BaseModel):
+    """Response for a single sentence humanization."""
+
+    original_text: str = Field(description="The original AI-flagged sentence")
+    rewrites: list[RewriteOption] = Field(description="Alternative human-sounding rewrites")
+    explanation: str = Field(description="Why the original sounds AI-generated")
+    ai_tells: list[str] = Field(
+        description="Specific AI writing patterns detected",
+        default_factory=list,
+    )
+
+
+class HumanizeBatchResponse(BaseModel):
+    """Response for batch humanization."""
+
+    document_id: str = Field(description="Source document ID")
+    results: list[HumanizeResponse] = Field(description="Per-sentence humanization results")
+    tone: str = Field(description="Tone used for rewrites")
+
+
+# Resume Optimizer Schemas
+class ResumeOptimizeRequest(BaseModel):
+    """Request to generate an ATS-optimized resume."""
+
+    document_id: str = Field(description="Resume document ID")
+    job_id: str = Field(description="Job description ID (from previous ATS scoring)")
+
+
+class DiffStats(BaseModel):
+    """Statistics about what changed between original and optimized."""
+
+    words_added: int = Field(description="Number of new words added")
+    words_removed: int = Field(description="Number of words removed")
+    original_line_count: int = Field(description="Lines in original")
+    optimized_line_count: int = Field(description="Lines in optimized")
+    original_word_count: int = Field(description="Words in original")
+    optimized_word_count: int = Field(description="Words in optimized")
+
+
+class ChangeItem(BaseModel):
+    """A single change made during optimization."""
+
+    section: str = Field(description="Resume section affected")
+    change: str = Field(description="What was changed")
+    reason: str = Field(description="Why this helps ATS compatibility")
+
+
+class SectionImprovement(BaseModel):
+    """Before/after comparison for a resume section."""
+
+    section: str = Field(description="Section name")
+    before: str = Field(description="Original text snippet")
+    after: str = Field(description="Optimized text snippet")
+    impact: Literal["high", "medium", "low"] = Field(description="Expected impact level")
+
+
+class ResumeOptimizeResponse(BaseModel):
+    """Response containing the optimized resume."""
+
+    document_id: str = Field(description="Original resume document ID")
+    job_id: str = Field(description="Job description ID")
+    optimized_resume: str = Field(description="Full optimized resume text")
+    changes: list[ChangeItem] = Field(description="List of changes made")
+    section_improvements: list[SectionImprovement] = Field(
+        description="Section-by-section before/after comparisons"
+    )
+    keywords_added: list[str] = Field(description="Keywords injected into the resume")
+    estimated_score_improvement: int = Field(
+        description="Estimated ATS score improvement (points)"
+    )
+    diff_stats: DiffStats = Field(description="Statistics about what changed")
+    generated_at: datetime = Field(description="When optimization was generated")
+
+
 # Health Check Schemas
 class HealthCheckResponse(BaseModel):
     """Response schema for health check endpoint."""

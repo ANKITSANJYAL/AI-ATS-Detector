@@ -100,6 +100,71 @@ export const HealthCheckResponseSchema = z.object({
 
 export type HealthCheckResponse = z.infer<typeof HealthCheckResponseSchema>;
 
+// ── AI Humanizer ──────────────────────────────────────────────────────
+
+export const RewriteOptionSchema = z.object({
+  text: z.string(),
+  approach: z.string(),
+});
+
+export const HumanizeResponseSchema = z.object({
+  original_text: z.string(),
+  rewrites: z.array(RewriteOptionSchema),
+  explanation: z.string(),
+  ai_tells: z.array(z.string()).default([]),
+});
+
+export const HumanizeBatchResponseSchema = z.object({
+  document_id: z.string(),
+  results: z.array(HumanizeResponseSchema),
+  tone: z.string(),
+});
+
+export type RewriteOption = z.infer<typeof RewriteOptionSchema>;
+export type HumanizeResponse = z.infer<typeof HumanizeResponseSchema>;
+export type HumanizeBatchResponse = z.infer<typeof HumanizeBatchResponseSchema>;
+
+// ── Resume Optimizer ──────────────────────────────────────────────────
+
+export const DiffStatsSchema = z.object({
+  words_added: z.number(),
+  words_removed: z.number(),
+  original_line_count: z.number(),
+  optimized_line_count: z.number(),
+  original_word_count: z.number(),
+  optimized_word_count: z.number(),
+});
+
+export const ChangeItemSchema = z.object({
+  section: z.string(),
+  change: z.string(),
+  reason: z.string(),
+});
+
+export const SectionImprovementSchema = z.object({
+  section: z.string(),
+  before: z.string(),
+  after: z.string(),
+  impact: z.enum(["high", "medium", "low"]),
+});
+
+export const ResumeOptimizeResponseSchema = z.object({
+  document_id: z.string(),
+  job_id: z.string(),
+  optimized_resume: z.string(),
+  changes: z.array(ChangeItemSchema),
+  section_improvements: z.array(SectionImprovementSchema),
+  keywords_added: z.array(z.string()),
+  estimated_score_improvement: z.number(),
+  diff_stats: DiffStatsSchema,
+  generated_at: z.string(),
+});
+
+export type DiffStats = z.infer<typeof DiffStatsSchema>;
+export type ChangeItem = z.infer<typeof ChangeItemSchema>;
+export type SectionImprovement = z.infer<typeof SectionImprovementSchema>;
+export type ResumeOptimizeResponse = z.infer<typeof ResumeOptimizeResponseSchema>;
+
 // ── Validation helper ─────────────────────────────────────────────────
 
 /**

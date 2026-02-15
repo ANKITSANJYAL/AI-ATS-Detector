@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { ArrowLeft, Target, TrendingUp, BarChart3, Shield, Loader2, Download } from "lucide-react";
 import AIDetectorResults from "./AIDetectorResults";
+import ResumeOptimizer from "./ResumeOptimizer";
 import { exportATSCSV } from "../lib/export";
 import { config } from "../lib/config";
 
@@ -417,6 +418,14 @@ export default function ATSResults({ results, onReset }: ATSResultsProps) {
               )}
             </div>
           </div>
+        )}
+
+        {/* Resume Optimizer — Diagnose → Fix → Verify */}
+        {results.document_id && results.job_id && (
+          <ResumeOptimizer
+            documentId={results.document_id}
+            jobId={results.job_id}
+          />
         )}
 
         {/* Cross-Pipeline: AI Check */}

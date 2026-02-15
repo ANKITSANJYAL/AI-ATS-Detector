@@ -1,8 +1,9 @@
 "use client";
 
 import { ArrowLeft, AlertCircle, ChevronDown, ChevronUp, Download } from "lucide-react";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { exportDetectionCSV, exportDetectionReport } from "../lib/export";
+import HumanizerPanel from "./HumanizerPanel";
 
 interface SentenceFeatures {
   word_count?: number;
@@ -35,6 +36,9 @@ export default function AIDetectorResults({ results, onReset }: AIDetectorResult
   const [hoveredSentence, setHoveredSentence] = useState<number | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
   const [isAnalysisExpanded, setIsAnalysisExpanded] = useState(true);
+  // Humanizer panel state
+  const [humanizerIndex, setHumanizerIndex] = useState<number | null>(null);
+  const [appliedRewrites, setAppliedRewrites] = useState<Map<number, string>>(new Map());
 
   // Calculate AI probability percentage
   const aiProbability = Math.round((results.ai_probability || 0) * 100);
@@ -96,28 +100,75 @@ export default function AIDetectorResults({ results, onReset }: AIDetectorResult
     setHoveredSentence(null);
   };
 
+  /** Open humanizer panel for a clicked AI-flagged sentence */
+  const handleSentenceClick = useCallback(
+    (analysisIndex: number) => {
+      const item = sentenceAnalysis[analysisIndex];
+      if (!item || !item.is_ai) return;
+      setHumanizerIndex(humanizerIndex === analysisIndex ? null : analysisIndex);
+    },
+    [sentenceAnalysis, humanizerIndex]
+  );
+
+  /** Apply a rewrite from the humanizer panel */
+  const handleApplyRewrite = useCallback(
+    (_original: string, replacement: string) => {
+      if (humanizerIndex === null) return;
+      setAppliedRewrites((prev) => {
+        const next = new Map(prev);
+        next.set(humanizerIndex, replacement);
+        return next;
+      });
+    },
+    [humanizerIndex]
+  );
+
+  /** Get context sentences for the humanizer */
+  const getContext = useCallback(
+    (index: number) => {
+      const before =
+        index > 0 ? sentenceAnalysis[index - 1]?.text || "" : "";
+      const after =
+        index < sentenceAnalysis.length - 1
+          ? sentenceAnalysis[index + 1]?.text || ""
+          : "";
+      return { contextBefore: before, contextAfter: after };
+    },
+    [sentenceAnalysis]
+  );
+
   /** Render a single highlighted sentence span */
   const renderSentenceSpan = (
     item: SentenceItem,
     analysisIndex: number,
     trailingSpace: boolean,
     key: string
-  ) => (
-    <span key={key}>
-      <span
-        onMouseEnter={(e) => handleMouseEnter(analysisIndex, e)}
-        onMouseLeave={handleMouseLeave}
-        className={`cursor-pointer transition-all duration-200 ${
-          item.is_ai
-            ? "bg-red-500/20 text-red-100 hover:bg-red-500/30 border-b-2 border-red-500/50"
-            : "bg-green-500/20 text-green-100 hover:bg-green-500/30 border-b-2 border-green-500/50"
-        } px-1 py-0.5 rounded`}
-      >
-        {item.text}
+  ) => {
+    const rewritten = appliedRewrites.get(analysisIndex);
+    const displayText = rewritten || item.text;
+    const isRewritten = !!rewritten;
+
+    return (
+      <span key={key}>
+        <span
+          onMouseEnter={(e) => handleMouseEnter(analysisIndex, e)}
+          onMouseLeave={handleMouseLeave}
+          onClick={() => item.is_ai && handleSentenceClick(analysisIndex)}
+          className={`transition-all duration-200 ${
+            isRewritten
+              ? "bg-blue-500/20 text-blue-100 border-b-2 border-blue-500/50 cursor-default"
+              : item.is_ai
+              ? "bg-red-500/20 text-red-100 hover:bg-red-500/30 border-b-2 border-red-500/50 cursor-pointer"
+              : "bg-green-500/20 text-green-100 hover:bg-green-500/30 border-b-2 border-green-500/50 cursor-pointer"
+          } px-1 py-0.5 rounded`}
+          title={item.is_ai && !isRewritten ? "Click to humanize this sentence" : undefined}
+        >
+          {displayText}
+        </span>
+        {trailingSpace && " "}
       </span>
-      {trailingSpace && " "}
-    </span>
-  );
+    );
+  };
 
   /** Render the tooltip */
   const renderTooltip = () => {
@@ -429,10 +480,40 @@ export default function AIDetectorResults({ results, onReset }: AIDetectorResult
                   <div className="w-4 h-4 bg-green-500/30 border-b-2 border-green-500/50 rounded"></div>
                   <span className="text-slate-400">Human-Written</span>
                 </div>
+                {appliedRewrites.size > 0 && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 bg-blue-500/30 border-b-2 border-blue-500/50 rounded"></div>
+                    <span className="text-slate-400">Humanized</span>
+                  </div>
+                )}
                 <div className="text-slate-500 italic">
-                  (Hover over text for details)
+                  (Hover for details · Click AI text to humanize)
                 </div>
               </div>
+
+              {/* Humanizer Panel — shown inline for the clicked AI sentence */}
+              {humanizerIndex !== null && sentenceAnalysis[humanizerIndex] && (
+                <div className="mt-4">
+                  <HumanizerPanel
+                    sentence={sentenceAnalysis[humanizerIndex].text}
+                    contextBefore={getContext(humanizerIndex).contextBefore}
+                    contextAfter={getContext(humanizerIndex).contextAfter}
+                    onApply={handleApplyRewrite}
+                    onClose={() => setHumanizerIndex(null)}
+                  />
+                </div>
+              )}
+
+              {/* Rewrite summary badge */}
+              {appliedRewrites.size > 0 && (
+                <div className="mt-4 flex items-center justify-center">
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-500/10 border border-blue-500/20">
+                    <span className="text-blue-400 text-sm font-medium">
+                      ✨ {appliedRewrites.size} sentence{appliedRewrites.size > 1 ? "s" : ""} humanized
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           ) : isAnalysisExpanded ? (
             <div className="text-center py-12">

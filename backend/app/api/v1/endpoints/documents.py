@@ -25,6 +25,12 @@ from app.models.schemas import (
     ATSScoringResponse,
     DocumentType,
     DocumentUploadResponse,
+    HumanizeBatchRequest,
+    HumanizeBatchResponse,
+    HumanizeResponse,
+    HumanizeSentenceRequest,
+    ResumeOptimizeRequest,
+    ResumeOptimizeResponse,
 )
 from app.services.redis_client import RedisClient, get_redis_client
 
@@ -306,6 +312,215 @@ async def score_resume(
 
     logger.info(f"ATS scoring completed for {document_id}: {result.overall_score:.1f}/100")
     return result
+
+
+@router.post(
+    "/humanize",
+    response_model=HumanizeResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Humanize a single AI-flagged sentence",
+    description="""
+    Rewrite an AI-flagged sentence to sound more human.
+
+    **Returns:** 3 alternative rewrites with different approaches,
+    an explanation of why the original sounds AI-generated,
+    and specific AI writing patterns detected.
+    """,
+)
+async def humanize_sentence(
+    request: HumanizeSentenceRequest,
+    user_id: Annotated[str, Depends(get_current_user_id)] = None,
+    _: Annotated[None, Depends(verify_rate_limit)] = None,
+) -> HumanizeResponse:
+    """Generate human-sounding rewrites for an AI-flagged sentence."""
+    from app.agents.humanizer import get_humanizer_agent
+
+    humanizer = get_humanizer_agent()
+
+    logger.info(f"Humanizing sentence for user {user_id}, tone={request.tone}")
+
+    result = await humanizer.humanize_sentence(
+        sentence=request.sentence,
+        context_before=request.context_before,
+        context_after=request.context_after,
+        tone=request.tone,
+    )
+
+    return HumanizeResponse(**result)
+
+
+@router.post(
+    "/humanize-batch",
+    response_model=HumanizeBatchResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Humanize multiple AI-flagged sentences",
+    description="""
+    Rewrite multiple AI-flagged sentences in batch.
+    Maximum 20 sentences per request.
+
+    **Returns:** Per-sentence humanization results.
+    """,
+)
+async def humanize_batch(
+    request: HumanizeBatchRequest,
+    user_id: Annotated[str, Depends(get_current_user_id)] = None,
+    _: Annotated[None, Depends(verify_rate_limit)] = None,
+    db: Annotated[AsyncSession, Depends(get_db_session)] = None,
+) -> HumanizeBatchResponse:
+    """Humanize multiple AI-flagged sentences in batch."""
+    from app.agents.humanizer import get_humanizer_agent
+
+    # Verify document belongs to user
+    await _get_user_document(db, request.document_id, user_id)
+
+    humanizer = get_humanizer_agent()
+
+    logger.info(
+        f"Batch humanizing {len(request.sentences)} sentences for "
+        f"document {request.document_id}"
+    )
+
+    sentences = [
+        {
+            "text": s.get("text", ""),
+            "context_before": s.get("context_before", ""),
+            "context_after": s.get("context_after", ""),
+        }
+        for s in request.sentences
+    ]
+
+    raw_results = await humanizer.humanize_batch(
+        sentences=sentences,
+        tone=request.tone,
+    )
+
+    results = [HumanizeResponse(**r) for r in raw_results]
+
+    return HumanizeBatchResponse(
+        document_id=request.document_id,
+        results=results,
+        tone=request.tone,
+    )
+
+
+@router.post(
+    "/optimize-resume",
+    response_model=ResumeOptimizeResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Generate ATS-optimized resume",
+    description="""
+    Generate a tailored, ATS-optimized version of the resume
+    for a specific job description.
+
+    **Requires:** A previous ATS scoring run (document_id + job_id).
+
+    **Returns:** Optimized resume text, change list,
+    section-by-section comparisons, and diff statistics.
+    """,
+)
+async def optimize_resume(
+    request: ResumeOptimizeRequest,
+    user_id: Annotated[str, Depends(get_current_user_id)] = None,
+    _: Annotated[None, Depends(verify_rate_limit)] = None,
+    db: Annotated[AsyncSession, Depends(get_db_session)] = None,
+    redis: Annotated[RedisClient, Depends(get_redis_client)] = None,
+    orchestrator: Annotated[OrchestratorAgent, Depends(get_orchestrator_agent)] = None,
+) -> ResumeOptimizeResponse:
+    """Generate an ATS-optimized resume from a previous scoring run."""
+    from datetime import UTC, datetime
+
+    from app.agents.resume_optimizer import get_resume_optimizer_agent
+
+    document_id = request.document_id
+    job_id = request.job_id
+
+    # Check cache
+    cache_key = f"result:optimize:{document_id}:{job_id}"
+    cached = await redis.get(cache_key)
+    if cached:
+        logger.info(f"Cache hit for optimization {document_id}:{job_id}")
+        return ResumeOptimizeResponse.model_validate_json(cached)
+
+    # Load document
+    doc = await _get_user_document(db, document_id, user_id)
+
+    # Load ATS result for this document+job pair
+    stmt = select(ATSResult).where(
+        ATSResult.document_id == doc.id,
+        ATSResult.job_id == uuid.UUID(job_id),
+        ATSResult.user_id == user_id,
+    )
+    ats_exec = await db.execute(stmt)
+    ats_row = ats_exec.scalar_one_or_none()
+    if not ats_row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No ATS scoring result found for this document/job. Run /score first.",
+        )
+
+    # Load job description
+    stmt = select(JobDescription).where(
+        JobDescription.id == uuid.UUID(job_id),
+        JobDescription.user_id == user_id,
+    )
+    job_exec = await db.execute(stmt)
+    job_row = job_exec.scalar_one_or_none()
+    if not job_row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job description not found",
+        )
+
+    # Extract resume text
+    from app.services.document_processor import DocumentProcessor
+    processor = DocumentProcessor()
+    resume_text = processor.extract_text(doc.content, doc.mime_type)
+
+    optimizer = get_resume_optimizer_agent()
+
+    logger.info(f"Optimizing resume {document_id} for job {job_id}")
+
+    result = await optimizer.optimize(
+        resume_text=resume_text,
+        job_description=job_row.description,
+        skill_matches=ats_row.skill_matches or [],
+        gap_analysis=ats_row.gap_analysis or {},
+        format_score=ats_row.format_score if hasattr(ats_row, "format_score") else 50,
+        keyword_score=ats_row.keyword_match_score if hasattr(ats_row, "keyword_match_score") else 50,
+    )
+
+    response = ResumeOptimizeResponse(
+        document_id=document_id,
+        job_id=job_id,
+        optimized_resume=result["optimized_resume"],
+        changes=[
+            {"section": c.get("section", ""), "change": c.get("change", ""), "reason": c.get("reason", "")}
+            for c in result.get("changes", [])
+        ],
+        section_improvements=[
+            {
+                "section": si.get("section", ""),
+                "before": si.get("before", ""),
+                "after": si.get("after", ""),
+                "impact": si.get("impact", "medium"),
+            }
+            for si in result.get("section_improvements", [])
+        ],
+        keywords_added=result.get("keywords_added", []),
+        estimated_score_improvement=result.get("estimated_score_improvement", 0),
+        diff_stats=result.get("diff_stats", {
+            "words_added": 0, "words_removed": 0,
+            "original_line_count": 0, "optimized_line_count": 0,
+            "original_word_count": 0, "optimized_word_count": 0,
+        }),
+        generated_at=datetime.now(UTC),
+    )
+
+    # Cache for 12 hours
+    await redis.set(cache_key, response.model_dump_json(), ttl=43200)
+
+    logger.info(f"Resume optimization completed for {document_id}")
+    return response
 
 
 # --- Helper functions ---
