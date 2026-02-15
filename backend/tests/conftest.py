@@ -7,7 +7,7 @@ contamination from starlette BaseHTTPMiddleware and persistent
 Redis/DB connections.
 """
 import asyncio
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import pytest
 import pytest_asyncio
@@ -32,7 +32,7 @@ def event_loop():
 
 
 @pytest_asyncio.fixture(scope="session")
-async def async_client() -> AsyncGenerator[AsyncClient, None]:
+async def async_client() -> AsyncGenerator[AsyncClient]:
     """
     Provide an async HTTP client bound to the FastAPI app.
     Uses ASGI transport so no actual server is needed.

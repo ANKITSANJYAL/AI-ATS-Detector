@@ -9,16 +9,15 @@ Production logging pipeline:
   All logs include: app, version, environment, severity, logger, request_id (when available).
   Set LOG_LEVEL in .env to control verbosity.
 """
+import contextvars
 import logging
 import sys
-import contextvars
 from typing import Any
 from uuid import uuid4
 
 from pythonjsonlogger import jsonlogger
 
 from app.core.config import get_settings
-
 
 # Context variable for request ID tracing across async calls
 request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(

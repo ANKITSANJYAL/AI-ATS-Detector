@@ -85,7 +85,7 @@ jobs:
           POSTGRES_DSN: postgresql://test:test@localhost:5432/docguard_test
           REDIS_DSN: redis://localhost:6379/0
         run: |
-          pytest tests/ -v --cov=app --cov-report=xml --cov-report=term-missing
+          pytest tests/ -v --cov-report=xml
 
       - name: Upload coverage
         if: github.event_name == 'push'

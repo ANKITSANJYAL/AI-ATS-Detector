@@ -10,8 +10,8 @@ import time
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.logging import get_logger, set_request_id
-from app.db.session import get_session_factory
 from app.db.models import UsageRecord
+from app.db.session import get_session_factory
 
 logger = get_logger(__name__)
 

@@ -12,8 +12,8 @@ from app.models.schemas import (
     DetectionResult,
     LinguisticFeatures,
 )
-from app.services.llm_client import LLMClient, get_llm_client
 from app.services.ai_classifier import get_ai_classifier
+from app.services.llm_client import LLMClient, get_llm_client
 
 logger = get_logger(__name__)
 
@@ -138,7 +138,7 @@ class DetectorAgent:
         if len(sentence_lengths) >= 2:
             mean_len = sum(sentence_lengths) / len(sentence_lengths)
             if mean_len > 0:
-                std_dev = (sum((l - mean_len) ** 2 for l in sentence_lengths) / len(sentence_lengths)) ** 0.5
+                std_dev = (sum((sl - mean_len) ** 2 for sl in sentence_lengths) / len(sentence_lengths)) ** 0.5
                 cv = std_dev / mean_len  # 0 = perfectly uniform, typically 0.3-0.8 for humans
                 sentence_complexity = min(1.0, cv / 1.0)  # Normalize: CV of 1.0 maps to 1.0
             else:

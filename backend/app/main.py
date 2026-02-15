@@ -13,13 +13,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import get_settings
-from app.core.logging import setup_logging, get_logger
-from app.db.session import close_db, get_engine
+from app.core.logging import get_logger, setup_logging
 from app.db.models import Base
-from app.middleware.usage_tracker import UsageTrackerMiddleware
+from app.db.session import close_db, get_engine
 from app.middleware.api_version import APIVersionMiddleware
-from app.services.redis_client import close_redis_client, get_redis_client
+from app.middleware.usage_tracker import UsageTrackerMiddleware
 from app.services.mcp_client import close_mcp_client
+from app.services.redis_client import close_redis_client, get_redis_client
 
 # Setup logging
 setup_logging()
@@ -194,6 +194,7 @@ async def health_check():
     Returns health status of all services with real connectivity checks.
     """
     from datetime import UTC, datetime
+
     from app.agents.orchestrator import get_orchestrator_agent
 
     orchestrator = get_orchestrator_agent()

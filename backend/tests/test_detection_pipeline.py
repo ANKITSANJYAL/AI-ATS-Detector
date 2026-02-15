@@ -7,7 +7,6 @@ import pytest
 from app.agents.detector import DetectorAgent, get_detector_agent
 from app.services.ai_classifier import AIClassifier, get_ai_classifier
 
-
 # ── Sample texts ────────────────────────────────────────────────────────
 HUMAN_TEXT = (
     "I woke up early today and honestly couldn't decide what to have for "

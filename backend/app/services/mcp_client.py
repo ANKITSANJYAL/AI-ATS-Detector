@@ -2,8 +2,9 @@
 MCP (Model Context Protocol) client for tool integration.
 Connects to MCP server for filesystem and database operations.
 """
-import httpx
 from typing import Any
+
+import httpx
 
 from app.core.config import get_settings
 from app.core.logging import get_logger

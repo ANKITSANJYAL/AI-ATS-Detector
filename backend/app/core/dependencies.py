@@ -58,7 +58,7 @@ async def _fetch_clerk_jwks(settings: Settings, redis: RedisClient) -> dict:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service temporarily unavailable",
-        )
+        ) from e
 
     # Cache for 1 hour
     await redis.set(_JWKS_CACHE_KEY, json.dumps(jwks_data), ttl=3600)
@@ -144,13 +144,13 @@ async def get_current_user_id(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired",
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from None
     except jwt.InvalidTokenError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid token: {e}",
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from e
     except HTTPException:
         raise
     except Exception as e:
@@ -159,7 +159,7 @@ async def get_current_user_id(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication failed",
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from e
 
 
 async def verify_rate_limit(
@@ -194,7 +194,6 @@ async def verify_rate_limit(
         ttl = results[1]
 
         limit = settings.rate_limit_per_minute
-        remaining = max(0, limit - count)
         reset = max(ttl, 0)
 
         if count > limit:

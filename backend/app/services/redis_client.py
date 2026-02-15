@@ -2,7 +2,6 @@
 Redis client for caching and job queue operations.
 Provides async interface for Redis operations.
 """
-from typing import Any
 
 import redis.asyncio as redis
 

@@ -2,11 +2,10 @@
 Test suite for ATS Scorer Agent.
 Validates scoring accuracy using Spearman's Rho correlation.
 """
-import pytest
 import numpy as np
+import pytest
 
 from app.agents.ats_scorer import ATSScorerAgent
-from app.services.llm_client import LLMClient
 
 
 def spearman_correlation(x: list[float], y: list[float]) -> tuple[float, float]:
@@ -146,7 +145,7 @@ class TestATSScorerValidation:
         correlation, p_value = spearman_correlation(predicted_scores, expected_scores)
 
         print(f"\n{'='*60}")
-        print(f"VALIDATION RESULTS")
+        print("VALIDATION RESULTS")
         print(f"{'='*60}")
         print(f"Spearman's Rho: {correlation:.4f}")
         print(f"P-value: {p_value:.4f}")

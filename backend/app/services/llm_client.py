@@ -2,10 +2,10 @@
 LLM client for AI operations.
 Supports OpenAI and Anthropic models with unified interface.
 """
-from typing import Any, Literal
+from typing import Literal
 
-from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
+from openai import AsyncOpenAI
 
 from app.core.config import get_settings
 from app.core.logging import get_logger

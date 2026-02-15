@@ -2,7 +2,6 @@
 Orchestrator Agent.
 Coordinates multiple agents and manages workflow.
 """
-from typing import Literal
 
 from app.agents.ats_scorer import ATSScorerAgent, get_ats_scorer_agent
 from app.agents.detector import DetectorAgent, get_detector_agent
@@ -114,9 +113,9 @@ class OrchestratorAgent:
 
     async def health_check(self) -> dict[str, bool]:
         """Check health of all agents and services with real checks."""
+        from app.db.session import get_engine
         from app.services.ai_classifier import get_ai_classifier
         from app.services.redis_client import get_redis_client
-        from app.db.session import get_engine
 
         results: dict[str, bool] = {}
 

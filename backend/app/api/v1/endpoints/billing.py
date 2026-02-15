@@ -128,7 +128,7 @@ async def create_checkout(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create checkout session",
-        )
+        ) from exc
 
 
 @router.post(
@@ -161,7 +161,7 @@ async def create_portal_session(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create portal session",
-        )
+        ) from exc
 
 
 @router.get(
@@ -175,8 +175,9 @@ async def get_usage_summary(
 ) -> UsageSummaryResponse:
     """Get usage summary from database."""
     from sqlalchemy import func, select
-    from app.db.session import get_session_factory
+
     from app.db.models import UsageRecord
+    from app.db.session import get_session_factory
 
     factory = get_session_factory()
     async with factory() as session:

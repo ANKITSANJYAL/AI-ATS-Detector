@@ -3,7 +3,6 @@ Document analysis endpoints.
 Handles document upload and analysis operations.
 Persists all data to PostgreSQL; uses Redis only for caching.
 """
-import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
@@ -16,6 +15,7 @@ from app.agents.orchestrator import OrchestratorAgent, get_orchestrator_agent
 from app.core.config import Settings, get_settings
 from app.core.dependencies import get_current_user_id, verify_rate_limit
 from app.core.logging import get_logger
+from app.core.sanitize import sanitize_filename
 from app.db.models import ATSResult, DetectionResult, Document, JobDescription
 from app.db.session import get_db_session
 from app.models.schemas import (
@@ -27,7 +27,6 @@ from app.models.schemas import (
     DocumentUploadResponse,
 )
 from app.services.redis_client import RedisClient, get_redis_client
-from app.core.sanitize import sanitize_filename, sanitize_text
 
 logger = get_logger(__name__)
 
@@ -316,7 +315,7 @@ async def _get_user_document(db: AsyncSession, document_id: str, user_id: str) -
     try:
         doc_uuid = uuid.UUID(document_id)
     except ValueError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid document ID")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid document ID") from None
 
     stmt = select(Document).where(Document.id == doc_uuid, Document.user_id == user_id)
     result = await db.execute(stmt)
@@ -364,4 +363,4 @@ async def _fetch_job_url(job_url: str) -> str:
                 ],
                 "reason": str(fetch_error),
             },
-        )
+        ) from fetch_error

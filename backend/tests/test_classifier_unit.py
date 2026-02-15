@@ -3,19 +3,16 @@ Unit tests for AIClassifier with mocked transformer models.
 Validates ensemble logic, log-odds pooling, calibration, and window aggregation
 without requiring real model weights (fast, no GPU needed).
 """
-import math
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.ai_classifier import AIClassifier, _CALIBRATION_SLOPE, _CALIBRATION_INTERCEPT
-
+from app.services.ai_classifier import AIClassifier
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
 def _make_mock_model(ai_prob: float):
     """Create a mock model entry that always returns a fixed P(AI)."""
-    import types
 
     mock_config = MagicMock()
     mock_config.id2label = {0: "Human", 1: "AI"}

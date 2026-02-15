@@ -3,7 +3,6 @@ Stripe billing service.
 Handles customer creation, checkout sessions, usage reporting,
 and Customer Portal integration.
 """
-import json
 from datetime import UTC, datetime
 
 from app.core.config import get_settings
@@ -38,7 +37,7 @@ class BillingService:
             logger.info("Stripe SDK initialized")
         except ImportError:
             logger.error("stripe package not installed")
-            raise RuntimeError("Stripe is not available")
+            raise RuntimeError("Stripe is not available") from None
 
     async def get_or_create_customer(
         self, user_id: str, email: str | None = None
@@ -115,7 +114,7 @@ class BillingService:
         }
 
         line_items = []
-        for feature, price_id in price_map.items():
+        for _feature, price_id in price_map.items():
             if price_id:
                 line_items.append({"price": price_id})
 

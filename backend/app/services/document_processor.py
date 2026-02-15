@@ -3,7 +3,6 @@ Document processor service.
 Handles document parsing, text extraction, and preprocessing.
 """
 import io
-from typing import BinaryIO
 
 import pypdf
 from docx import Document
@@ -118,7 +117,7 @@ class DocumentProcessor:
 
         except Exception as e:
             logger.error(f"PDF extraction failed: {e}")
-            raise ValueError(f"Failed to extract PDF content: {str(e)}")
+            raise ValueError(f"Failed to extract PDF content: {str(e)}") from e
 
     async def _extract_docx(self, file_content: bytes) -> str:
         """
@@ -145,7 +144,7 @@ class DocumentProcessor:
 
         except Exception as e:
             logger.error(f"DOCX extraction failed: {e}")
-            raise ValueError(f"Failed to extract DOCX content: {str(e)}")
+            raise ValueError(f"Failed to extract DOCX content: {str(e)}") from e
 
     async def _extract_pdf_structured(self, file_content: bytes) -> list[dict]:
         """
@@ -188,7 +187,7 @@ class DocumentProcessor:
 
         except Exception as e:
             logger.error(f"PDF structured extraction failed: {e}")
-            raise ValueError(f"Failed to extract PDF structure: {str(e)}")
+            raise ValueError(f"Failed to extract PDF structure: {str(e)}") from e
 
     async def _extract_docx_structured(self, file_content: bytes) -> list[dict]:
         """
@@ -246,7 +245,7 @@ class DocumentProcessor:
 
         except Exception as e:
             logger.error(f"DOCX structured extraction failed: {e}")
-            raise ValueError(f"Failed to extract DOCX structure: {str(e)}")
+            raise ValueError(f"Failed to extract DOCX structure: {str(e)}") from e
 
     def preprocess_text(self, text: str) -> str:
         """

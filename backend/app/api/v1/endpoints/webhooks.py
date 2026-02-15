@@ -2,8 +2,8 @@
 Webhook endpoints.
 Handles webhooks from external services (Stripe, etc).
 """
-import hmac
 import hashlib
+import hmac
 import json
 from typing import Annotated
 
@@ -72,7 +72,7 @@ async def stripe_webhook(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid JSON payload",
-        )
+        ) from None
 
     event_type = event_data.get("type")
     event_id = event_data.get("id", "unknown")

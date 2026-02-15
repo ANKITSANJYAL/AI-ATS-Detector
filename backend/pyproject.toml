@@ -48,7 +48,9 @@ include = '\.pyi?$'
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py313"
+
+[tool.ruff.lint]
 select = [
     "E",  # pycodestyle errors
     "W",  # pycodestyle warnings
@@ -59,8 +61,11 @@ select = [
     "UP",  # pyupgrade
 ]
 ignore = [
-    "E501",  # line too long (handled by black)
-    "B008",  # do not perform function calls in argument defaults
+    "E501",   # line too long (handled by black)
+    "B008",   # do not perform function calls in argument defaults
+    "B017",   # pytest.raises(Exception) — intentional in contract tests
+    "B905",   # zip() without strict= — not needed for equal-length vectors
+    "UP042",  # str+Enum → StrEnum — keep for Pydantic JSON serialization compat
 ]
 
 [tool.mypy]

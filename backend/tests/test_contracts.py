@@ -3,18 +3,16 @@ Contract tests for API response schemas.
 Validates that all API responses match their declared Pydantic models,
 ensuring frontend-backend contract compliance.
 """
-import pytest
 from datetime import UTC, datetime
+
+import pytest
 
 from app.models.schemas import (
     AIDetectionResponse,
     ATSScoringResponse,
-    DocumentUploadResponse,
+    DetectionResult,
     HealthCheckResponse,
     LinguisticFeatures,
-    DetectionResult,
-    GapAnalysis,
-    SkillMatch,
 )
 
 

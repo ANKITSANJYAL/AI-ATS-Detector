@@ -3,7 +3,6 @@ Web scraper service using Playwright for JavaScript-heavy sites.
 Handles sites like Indeed, LinkedIn that block simple HTTP requests.
 """
 import asyncio
-from typing import Optional
 
 import httpx
 from bs4 import BeautifulSoup
@@ -23,8 +22,8 @@ class WebScraper:
 
     def __init__(self):
         """Initialize web scraper."""
-        self.browser: Optional[Browser] = None
-        self.context: Optional[BrowserContext] = None
+        self.browser: Browser | None = None
+        self.context: BrowserContext | None = None
 
     async def fetch_url(self, url: str, timeout: int = 30000) -> str:
         """

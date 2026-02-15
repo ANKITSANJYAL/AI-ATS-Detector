@@ -87,8 +87,8 @@ class AIClassifier:
         self._loaded = True
 
         try:
-            from transformers import AutoModelForSequenceClassification, AutoTokenizer
             import torch
+            from transformers import AutoModelForSequenceClassification, AutoTokenizer
             torch.set_grad_enabled(False)
 
             for name, weight in MODEL_REGISTRY:
@@ -362,7 +362,7 @@ class AIClassifier:
         current_window: list[int] = []
         current_tokens = 0
 
-        for vi, (_, sent) in enumerate(valid):
+        for vi, (_, _sent) in enumerate(valid):
             tc = token_counts[vi]
             if current_tokens + tc > _WINDOW_SIZE_TOKENS and current_window:
                 windows.append(current_window)

@@ -84,7 +84,7 @@ async def get_job_description(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid job ID format",
-        )
+        ) from None
 
     stmt = select(JobDescription).where(
         JobDescription.id == job_uuid,
