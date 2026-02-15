@@ -9,7 +9,7 @@ import re
 from datetime import UTC, datetime
 
 from app.core.logging import get_logger
-from app.models.schemas import GapAnalysis, SkillMatch
+from app.models.schemas import GapAnalysis
 from app.services.llm_client import LLMClient, get_llm_client
 
 logger = get_logger(__name__)
@@ -39,8 +39,8 @@ class ResumeOptimizerAgent:
         self,
         resume_text: str,
         job_description: str,
-        skill_matches: list[SkillMatch],
-        gap_analysis: GapAnalysis,
+        skill_matches: list,
+        gap_analysis: dict | GapAnalysis,
         format_score: float,
         keyword_score: float,
     ) -> dict:
@@ -50,8 +50,8 @@ class ResumeOptimizerAgent:
         Args:
             resume_text: Original resume text
             job_description: Target job description
-            skill_matches: Current skill match results
-            gap_analysis: Current gap analysis
+            skill_matches: Current skill match results (list of dicts or SkillMatch)
+            gap_analysis: Current gap analysis (dict or GapAnalysis)
             format_score: Current format score
             keyword_score: Current keyword match score
 
@@ -60,9 +60,21 @@ class ResumeOptimizerAgent:
         """
         logger.info("Generating optimized resume")
 
-        missing_required = gap_analysis.missing_required_skills[:10]
-        missing_preferred = gap_analysis.missing_preferred_skills[:5]
-        matched_skills = [sm.skill for sm in skill_matches if sm.matched]
+        # Handle both dict and Pydantic model inputs
+        if isinstance(gap_analysis, dict):
+            missing_required = gap_analysis.get("missing_required_skills", [])[:10]
+            missing_preferred = gap_analysis.get("missing_preferred_skills", [])[:5]
+        else:
+            missing_required = gap_analysis.missing_required_skills[:10]
+            missing_preferred = gap_analysis.missing_preferred_skills[:5]
+
+        matched_skills = []
+        for sm in skill_matches:
+            if isinstance(sm, dict):
+                if sm.get("matched"):
+                    matched_skills.append(sm.get("skill", ""))
+            elif hasattr(sm, "matched") and sm.matched:
+                matched_skills.append(sm.skill)
 
         # Build targeted optimization prompt
         prompt = f"""You are an expert resume writer and ATS optimization specialist.

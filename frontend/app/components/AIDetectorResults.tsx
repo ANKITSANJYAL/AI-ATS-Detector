@@ -413,6 +413,25 @@ export default function AIDetectorResults({ results, onReset }: AIDetectorResult
 
           {isAnalysisExpanded && hasSentenceAnalysis ? (
             <div className="relative">
+              {/* Humanizer CTA Banner */}
+              {sentenceAnalysis.some((s) => s.is_ai) && (
+                <div className="mb-4 rounded-lg bg-gradient-to-r from-purple-500/10 to-indigo-500/10 border border-purple-500/20 p-4 flex items-center gap-3">
+                  <span className="text-2xl">✨</span>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-purple-300">
+                      AI Humanizer Available
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Click any <span className="text-red-400 font-medium">red highlighted sentence</span> to get human-sounding rewrite suggestions
+                    </p>
+                  </div>
+                  {appliedRewrites.size > 0 && (
+                    <span className="text-xs text-blue-400 font-medium px-2 py-1 rounded-full bg-blue-500/10 border border-blue-500/20">
+                      {appliedRewrites.size} rewritten
+                    </span>
+                  )}
+                </div>
+              )}
               <div className="bg-slate-900/50 border border-slate-600 rounded-lg p-8 leading-relaxed">
                 {shouldUseStructured ? (
                   /* ── Structured blocks: preserves headings, paragraphs, bold ── */

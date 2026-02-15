@@ -474,7 +474,7 @@ async def optimize_resume(
     # Extract resume text
     from app.services.document_processor import DocumentProcessor
     processor = DocumentProcessor()
-    resume_text = processor.extract_text(doc.content, doc.mime_type)
+    resume_text = await processor.extract_text(doc.content, doc.mime_type)
 
     optimizer = get_resume_optimizer_agent()
 

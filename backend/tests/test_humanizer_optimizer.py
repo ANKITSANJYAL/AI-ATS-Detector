@@ -232,3 +232,38 @@ class TestResumeOptimizerFallback:
             format_score=70,
         )
         assert "optimized_resume" in result
+
+
+class TestResumeOptimizerDictInput:
+    """Test that the optimizer handles raw dict input from DB JSON columns."""
+
+    @pytest.mark.asyncio
+    async def test_optimize_handles_dict_gap_analysis(self):
+        """The endpoint sends dicts (from DB JSON), not Pydantic models."""
+        from unittest.mock import AsyncMock
+
+        from app.agents.resume_optimizer import ResumeOptimizerAgent
+
+        agent = ResumeOptimizerAgent.__new__(ResumeOptimizerAgent)
+        agent.llm_client = AsyncMock()
+        # Simulate LLM failure so it falls back — this exercises the dict-handling code path
+        agent.llm_client.complete = AsyncMock(side_effect=Exception("no LLM"))
+
+        result = await agent.optimize(
+            resume_text="My resume with experience.",
+            job_description="Looking for Python developer.",
+            skill_matches=[
+                {"skill": "Python", "matched": True, "relevance": 0.9},
+                {"skill": "React", "matched": False, "relevance": 0.8},
+            ],
+            gap_analysis={
+                "missing_required_skills": ["React", "Node.js"],
+                "missing_preferred_skills": ["Docker"],
+                "recommendations": [],
+            },
+            format_score=60,
+            keyword_score=45,
+        )
+        assert "optimized_resume" in result
+        assert "changes" in result
+        assert "diff_stats" in result
