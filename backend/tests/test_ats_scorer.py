@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from app.agents.ats_scorer import ATSScorerAgent
+from tests.conftest import requires_openai
 
 
 def spearman_correlation(x: list[float], y: list[float]) -> tuple[float, float]:
@@ -109,6 +110,7 @@ class TestATSScorerValidation:
             },
         ]
 
+    @requires_openai
     @pytest.mark.asyncio
     async def test_ats_scoring_accuracy(
         self,
@@ -187,6 +189,7 @@ class TestATSScorerValidation:
         for match in matches:
             print(f"  {match.skill}: {'✓' if match.matched else '✗'}")
 
+    @requires_openai
     @pytest.mark.asyncio
     async def test_score_boundaries(
         self,

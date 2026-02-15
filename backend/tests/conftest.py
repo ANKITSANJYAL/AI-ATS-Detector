@@ -7,6 +7,7 @@ contamination from starlette BaseHTTPMiddleware and persistent
 Redis/DB connections.
 """
 import asyncio
+import os
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -16,6 +17,13 @@ from httpx import ASGITransport, AsyncClient
 from app.main import app
 
 pytest_plugins = ("pytest_asyncio",)
+
+
+# ── Marker: skip tests that require an OpenAI API key ──────────
+requires_openai = pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY"),
+    reason="OPENAI_API_KEY not set — skipping test that requires OpenAI",
+)
 
 
 @pytest.fixture(scope="session")
@@ -29,6 +37,27 @@ def event_loop():
     loop = policy.new_event_loop()
     yield loop
     loop.close()
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def _create_db_tables():
+    """
+    Auto-create all ORM tables before the test session starts.
+    This ensures the CI Postgres service has the schema even when
+    Alembic migrations haven't been applied.
+    """
+    try:
+        from app.db.models import Base
+        from app.db.session import get_engine
+
+        engine = get_engine()
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception:
+        # If DB is unavailable (e.g. local dev without Postgres),
+        # tests that don't need DB will still run fine.
+        pass
+    yield
 
 
 @pytest_asyncio.fixture(scope="session")
