@@ -1,0 +1,56 @@
+{
+  "timestamp": "2026-02-14T19:28:13.580210",
+  "suites": {
+    "keyword_extraction": {
+      "pass": true,
+      "keyword_recall": 1.0,
+      "stop_word_leak_rate": 0.0
+    },
+    "format_scoring": {
+      "pass": true,
+      "tests": [
+        {
+          "name": "Well-formatted resume",
+          "score": 77.5,
+          "passed": true
+        },
+        {
+          "name": "Poorly formatted resume",
+          "score": 14.0,
+          "passed": true
+        },
+        {
+          "name": "Moderate resume",
+          "score": 35.5,
+          "passed": true
+        }
+      ]
+    },
+    "skill_matching": {
+      "pass": true,
+      "tests": [
+        {
+          "name": "Exact match",
+          "passed": true
+        },
+        {
+          "name": "Java vs JavaScript distinction",
+          "passed": true
+        },
+        {
+          "name": "Variation matching",
+          "passed": true
+        },
+        {
+          "name": "No matches",
+          "passed": true
+        }
+      ]
+    },
+    "overall_scoring": {
+      "pass": true,
+      "spearman_rho": 1.0,
+      "all_in_range": true
+    }
+  }
+}

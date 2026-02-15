@@ -150,26 +150,19 @@ class AIClassifier:
     # ------------------------------------------------------------------
 
     def _infer_one(self, text: str, model_entry: dict) -> float:
-        """Run one model on text, return raw P(AI)."""
+        """
+        Run one model on text, return raw P(AI).
+
+        For texts longer than _WINDOW_SIZE_TOKENS, we use overlapping
+        sliding windows and pool results in log-odds space so that the
+        full document is considered, not just the first 512 tokens.
+        """
         import torch
 
         tok = model_entry["tokenizer"]
         mdl = model_entry["model"]
 
-        inputs = tok(
-            text,
-            return_tensors="pt",
-            truncation=True,
-            max_length=512,
-            padding=True,
-        )
-        outputs = mdl(**inputs)
-        probs = torch.softmax(outputs.logits, dim=1)
-
         # Detect AI label index dynamically from id2label
-        # roberta-base-openai-detector: {0: 'Real', 1: 'Fake'} -> 1
-        # Hello-SimpleAI/chatgpt-detector-roberta: {0: 'Human', 1: 'ChatGPT'} -> 1
-        # fakespot-ai: may vary — look for AI/Fake/Machine/ChatGPT/Generated
         id2label = getattr(mdl.config, "id2label", {})
         ai_index = 1  # safe default
         for idx, label in id2label.items():
@@ -178,7 +171,59 @@ class AIClassifier:
                 ai_index = int(idx)
                 break
 
-        return probs[0][ai_index].item()
+        # Tokenize without truncation to check length
+        all_ids = tok.encode(text, add_special_tokens=False)
+
+        if len(all_ids) <= _WINDOW_SIZE_TOKENS - 2:
+            # Short text — single pass
+            inputs = tok(
+                text,
+                return_tensors="pt",
+                truncation=True,
+                max_length=_WINDOW_SIZE_TOKENS,
+                padding=True,
+            )
+            outputs = mdl(**inputs)
+            probs = torch.softmax(outputs.logits, dim=1)
+            return probs[0][ai_index].item()
+
+        # Long text — sliding window with log-odds pooling
+        window_size = _WINDOW_SIZE_TOKENS - 2  # reserve for [CLS] and [SEP]
+        stride = _WINDOW_STRIDE_TOKENS
+        logit_sum = 0.0
+        weight_sum = 0.0
+
+        start = 0
+        while start < len(all_ids):
+            end = min(start + window_size, len(all_ids))
+            window_ids = all_ids[start:end]
+
+            # Manually add special tokens
+            input_ids = [tok.cls_token_id] + window_ids + [tok.sep_token_id]
+            attention_mask = [1] * len(input_ids)
+
+            inputs = {
+                "input_ids": torch.tensor([input_ids]),
+                "attention_mask": torch.tensor([attention_mask]),
+            }
+            outputs = mdl(**inputs)
+            probs = torch.softmax(outputs.logits, dim=1)
+            p = probs[0][ai_index].item()
+
+            # Clamp
+            p = max(1e-6, min(1 - 1e-6, p))
+            logit = math.log(p / (1 - p))
+            # Weight by window size (fuller windows are more reliable)
+            w = len(window_ids) / window_size
+            logit_sum += logit * w
+            weight_sum += w
+
+            start += stride
+            if end >= len(all_ids):
+                break
+
+        pooled_logit = logit_sum / weight_sum if weight_sum > 0 else 0.0
+        return 1.0 / (1.0 + math.exp(-pooled_logit))
 
     # ------------------------------------------------------------------
     # Log-odds ensemble pooling

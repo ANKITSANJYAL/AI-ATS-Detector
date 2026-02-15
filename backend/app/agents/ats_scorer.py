@@ -332,21 +332,61 @@ Guidelines:
             'providing', 'support', 'supporting', 'develop', 'developing',
             'manage', 'managing', 'maintain', 'maintaining', 'create',
             'creating', 'build', 'building', 'implement', 'implementing',
+            # Job-posting filler (leaked in benchmark: "senior", "ideal", etc.)
+            'senior', 'junior', 'mid', 'level', 'ideal', 'candidate',
+            'requiring', 'needed', 'environment', 'per', 'full',
+            'responsible', 'responsibilities', 'qualifications',
+            'benefits', 'salary', 'compensation', 'apply', 'please',
+            'description', 'overview', 'currently', 'seeking',
+            'open', 'opening', 'vacancy', 'posting', 'listed',
+            # Job title filler — not actual skills
+            'developer', 'engineer', 'scientist', 'analyst', 'architect',
+            'specialist', 'consultant', 'director', 'manager', 'lead',
+            'associate', 'intern', 'staff', 'principal', 'member',
+            'stack', 'full-stack', 'frontend', 'backend', 'fullstack',
+            'expertise', 'expert', 'skills', 'technologies',
+            # Common section headers that appear uppercase (EXPERIENCE, EDUCATION)
+            'education', 'summary', 'objective', 'profile', 'projects',
+            'certifications', 'references', 'contact', 'publications',
+            'interests', 'awards', 'activities', 'volunteer',
+            'present', 'current',
         }
 
-        # 1. Extract multi-word technical phrases (2-3 words, likely terms)
-        multi_word = re.findall(
-            r'\b[a-z][a-z.+#]+(?:\s+[a-z][a-z.+#]+){1,3}\b', text_lower
-        )
-        multi_word = [
-            t for t in multi_word
-            if not all(w in stop_words for w in t.split())
-            and len(t) > 4  # Skip very short phrases
+        # 1. Extract multi-word technical phrases (known compound terms)
+        #    Only match well-established compound technical terms, not
+        #    random adjacent words.
+        known_compound_terms = [
+            'machine learning', 'deep learning', 'natural language processing',
+            'computer vision', 'data science', 'data engineering',
+            'data analysis', 'data analytics', 'business intelligence',
+            'artificial intelligence', 'neural network', 'neural networks',
+            'rest api', 'rest apis', 'web development', 'web services',
+            'cloud computing', 'distributed systems', 'system design',
+            'object oriented', 'test driven', 'continuous integration',
+            'continuous delivery', 'agile methodology', 'agile methodologies',
+            'project management', 'product management',
+            'version control', 'source control',
+            'unit testing', 'integration testing', 'performance testing',
+            'technical writing', 'cross functional',
+            'ci/cd', 'devops', 'devsecops', 'site reliability',
+            'full stack', 'front end', 'back end',
+            'user experience', 'user interface',
+            'statistical modeling', 'statistical analysis',
+            'data visualization', 'data modeling',
+            'software engineering', 'software development',
+            'embedded systems', 'real time', 'high availability',
+            'load balancing', 'service mesh', 'event driven',
+            'micro services', 'microservices',
         ]
+        multi_word = []
+        for term in known_compound_terms:
+            if term in text_lower:
+                multi_word.append(term)
 
         # 2. Extract uppercase acronyms from original text (AWS, GCP, CI/CD)
+        #    Filter through stop words to avoid section headers like EXPERIENCE
         acronyms = re.findall(r'\b[A-Z][A-Z0-9/]{1,10}\b', text)
-        acronyms = [a.lower() for a in acronyms]
+        acronyms = [a.lower() for a in acronyms if a.lower() not in stop_words]
 
         # 3. Extract single words: 3+ chars, not in stop list
         single_words = re.findall(r'\b[a-z#.+]{3,}\b', text_lower)
@@ -418,22 +458,32 @@ Guidelines:
         if 300 <= word_count <= 1200:
             score += 8.0
         elif 200 <= word_count < 300 or 1200 < word_count <= 1800:
-            score += 4.0
-        # Very short or very long → 0 points
+            score += 5.0
+        elif 100 <= word_count < 200 or 1800 < word_count <= 2500:
+            score += 2.0
+        # Very short (<100) or very long (>2500) → 0 points
 
-        # 7. Action verbs at start of lines (up to 12)
+        # 7. Action verbs at start of lines/bullets (up to 12)
         action_verbs = {
             'led', 'developed', 'managed', 'created', 'designed', 'implemented',
             'built', 'improved', 'achieved', 'delivered', 'launched', 'optimized',
             'architected', 'established', 'reduced', 'increased', 'streamlined',
             'collaborated', 'mentored', 'drove', 'spearheaded', 'analyzed',
             'engineered', 'automated', 'maintained', 'resolved', 'coordinated',
+            'worked', 'contributed', 'initiated', 'directed', 'executed',
         }
         lines = resume_text.split('\n')
-        action_starts = sum(
-            1 for line in lines
-            if line.strip() and line.strip().split()[0].lower().rstrip('.,;:') in action_verbs
-        )
+        action_starts = 0
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            # Strip bullet markers before checking first word
+            cleaned = re.sub(r'^[•\-\*▪◦●]\s*', '', stripped).strip()
+            if cleaned:
+                first_word = cleaned.split()[0].lower().rstrip('.,;:')
+                if first_word in action_verbs:
+                    action_starts += 1
         score += min(12.0, action_starts * 2.0)
 
         return min(100.0, score)

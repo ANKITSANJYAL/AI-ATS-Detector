@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch, AsyncMock
 
 import pytest
 
-from app.services.ai_classifier import AIClassifier, _PLATT_A, _PLATT_B
+from app.services.ai_classifier import AIClassifier, _CALIBRATION_SLOPE, _CALIBRATION_INTERCEPT
 
 
 # ── Helpers ────────────────────────────────────────────────────────────
@@ -49,30 +49,28 @@ def _make_mock_model(ai_prob: float):
 
 
 class TestCalibration:
-    """Tests for Platt sigmoid calibration."""
+    """Tests for calibration (identity transform with optional intercept)."""
 
     def test_calibrate_midpoint(self):
-        """p=0.5 should stay near 0.5 (shifted only by PLATT_B)."""
+        """p=0.5 should stay at 0.5 with identity calibration."""
         clf = AIClassifier()
         cal = clf._calibrate(0.5)
-        # logit(0.5) = 0 → cal_logit = 0 + PLATT_B = -0.05 → sigmoid(-0.05) ≈ 0.4875
-        assert 0.45 < cal < 0.55
+        # logit(0.5) = 0 → cal_logit = 1.0*0 + 0.0 = 0 → sigmoid(0) = 0.5
+        assert 0.49 < cal < 0.51
 
-    def test_calibrate_high_compressed(self):
-        """p=0.99 should be compressed down."""
+    def test_calibrate_high_preserved(self):
+        """p=0.99 should stay near 0.99 with identity calibration."""
         clf = AIClassifier()
         raw = 0.99
         cal = clf._calibrate(raw)
-        assert cal < raw, "Calibration should compress extreme probabilities"
-        assert cal > 0.5, "But still indicate AI"
+        assert abs(cal - raw) < 0.01, "Identity calibration should preserve the signal"
 
-    def test_calibrate_low_compressed(self):
-        """p=0.01 should be pulled up toward 0.5."""
+    def test_calibrate_low_preserved(self):
+        """p=0.01 should stay near 0.01 with identity calibration."""
         clf = AIClassifier()
         raw = 0.01
         cal = clf._calibrate(raw)
-        assert cal > raw, "Calibration should pull extreme low toward center"
-        assert cal < 0.5, "But still indicate human"
+        assert abs(cal - raw) < 0.01, "Identity calibration should preserve the signal"
 
     def test_calibrate_monotonic(self):
         """Calibrated probabilities should be monotonically increasing."""
