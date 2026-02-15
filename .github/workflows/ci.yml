@@ -84,6 +84,7 @@ jobs:
           DEBUG: "true"
           POSTGRES_DSN: postgresql://test:test@localhost:5432/docguard_test
           REDIS_DSN: redis://localhost:6379/0
+          PYTHONPATH: .
         run: |
           pytest tests/ -v --cov-report=xml
 
